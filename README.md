@@ -26,13 +26,13 @@
   <em>See <a href="benches/">benches/</a> for detailed benchmarks.</em>
 </p>
 
-## Installation
+## 📦 Installation
 
 ```bash
 cargo add memchunk
 ```
 
-## Usage
+## 🚀 Usage
 
 ```rust
 use memchunk::chunk;
@@ -52,7 +52,7 @@ let chunks: Vec<&[u8]> = chunk(text).delimiters(b"\n.?!").collect();
 let chunks: Vec<&[u8]> = chunk(text).size(8192).delimiters(b"\n").collect();
 ```
 
-## Citation
+## 📝 Citation
 
 If you use memchunk in your research, please cite it as follows:
 
@@ -66,6 +66,6 @@ If you use memchunk in your research, please cite it as follows:
 }
 ```
 
-## License
+## 📄 License
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
