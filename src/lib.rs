@@ -20,6 +20,37 @@ pub const DEFAULT_TARGET_SIZE: usize = 4096;
 /// Default delimiters: newline, period, question mark.
 pub const DEFAULT_DELIMITERS: &[u8] = b"\n.?";
 
+/// Find last delimiter in window using SIMD-accelerated memchr (1-3 delimiters)
+/// or lookup table (4+ delimiters).
+#[inline]
+fn find_last_delimiter(window: &[u8], delimiters: &[u8], table: Option<&[bool; 256]>) -> Option<usize> {
+    if let Some(t) = table {
+        window.iter().rposition(|&b| t[b as usize])
+    } else {
+        match delimiters.len() {
+            1 => memchr::memrchr(delimiters[0], window),
+            2 => memchr::memrchr2(delimiters[0], delimiters[1], window),
+            3 => memchr::memrchr3(delimiters[0], delimiters[1], delimiters[2], window),
+            0 => None,
+            _ => unreachable!(),
+        }
+    }
+}
+
+/// Build lookup table for 4+ delimiters.
+#[inline]
+fn build_table(delimiters: &[u8]) -> Option<[bool; 256]> {
+    if delimiters.len() > 3 {
+        let mut t = [false; 256];
+        for &b in delimiters {
+            t[b as usize] = true;
+        }
+        Some(t)
+    } else {
+        None
+    }
+}
+
 /// Chunk text at delimiter boundaries.
 ///
 /// Returns a builder that can be configured with `.size()` and `.delimiters()`,
@@ -90,37 +121,8 @@ impl<'a> Chunker<'a> {
     /// Initialize lookup table if needed (called on first iteration).
     fn init(&mut self) {
         if !self.initialized {
-            if self.delimiters.len() > 3 {
-                let mut t = [false; 256];
-                for &b in self.delimiters {
-                    t[b as usize] = true;
-                }
-                self.table = Some(t);
-            }
+            self.table = build_table(self.delimiters);
             self.initialized = true;
-        }
-    }
-
-    /// Find last delimiter in window using appropriate method.
-    #[inline]
-    fn find_last_delimiter(&self, window: &[u8]) -> Option<usize> {
-        if let Some(ref table) = self.table {
-            // Lookup table for 4+ delimiters
-            window.iter().rposition(|&b| table[b as usize])
-        } else {
-            // SIMD-accelerated memchr for 1-3 delimiters
-            match self.delimiters.len() {
-                1 => memchr::memrchr(self.delimiters[0], window),
-                2 => memchr::memrchr2(self.delimiters[0], self.delimiters[1], window),
-                3 => memchr::memrchr3(
-                    self.delimiters[0],
-                    self.delimiters[1],
-                    self.delimiters[2],
-                    window,
-                ),
-                0 => None,
-                _ => unreachable!(),
-            }
         }
     }
 }
@@ -148,7 +150,7 @@ impl<'a> Iterator for Chunker<'a> {
         let window = &self.text[self.pos..end];
 
         // Find last delimiter in window
-        let split_at = match self.find_last_delimiter(window) {
+        let split_at = match find_last_delimiter(window, self.delimiters, self.table.as_ref()) {
             Some(pos) => self.pos + pos + 1, // Include the delimiter
             None => end,                      // No delimiter, hard split at target
         };
@@ -156,6 +158,140 @@ impl<'a> Iterator for Chunker<'a> {
         let chunk = &self.text[self.pos..split_at];
         self.pos = split_at;
         Some(chunk)
+    }
+}
+
+/// Owned chunker for FFI bindings (Python, WASM).
+///
+/// Unlike [`Chunker`], this owns its data and returns owned chunks.
+/// Use this when you need to cross FFI boundaries where lifetimes can't be tracked.
+///
+/// # Example
+///
+/// ```
+/// use memchunk::OwnedChunker;
+///
+/// let text = b"Hello world. How are you?".to_vec();
+/// let mut chunker = OwnedChunker::new(text)
+///     .size(15)
+///     .delimiters(b"\n.?".to_vec());
+///
+/// while let Some(chunk) = chunker.next_chunk() {
+///     println!("{:?}", chunk);
+/// }
+/// ```
+pub struct OwnedChunker {
+    text: Vec<u8>,
+    target_size: usize,
+    delimiters: Vec<u8>,
+    pos: usize,
+    table: Option<[bool; 256]>,
+    initialized: bool,
+}
+
+impl OwnedChunker {
+    /// Create a new owned chunker with the given text.
+    pub fn new(text: Vec<u8>) -> Self {
+        Self {
+            text,
+            target_size: DEFAULT_TARGET_SIZE,
+            delimiters: DEFAULT_DELIMITERS.to_vec(),
+            pos: 0,
+            table: None,
+            initialized: false,
+        }
+    }
+
+    /// Set the target chunk size in bytes.
+    pub fn size(mut self, size: usize) -> Self {
+        self.target_size = size;
+        self
+    }
+
+    /// Set the delimiters to split on.
+    pub fn delimiters(mut self, delimiters: Vec<u8>) -> Self {
+        self.delimiters = delimiters;
+        self
+    }
+
+    /// Initialize lookup table if needed.
+    fn init(&mut self) {
+        if !self.initialized {
+            self.table = build_table(&self.delimiters);
+            self.initialized = true;
+        }
+    }
+
+    /// Get the next chunk, or None if exhausted.
+    pub fn next_chunk(&mut self) -> Option<Vec<u8>> {
+        self.init();
+
+        if self.pos >= self.text.len() {
+            return None;
+        }
+
+        let remaining = self.text.len() - self.pos;
+
+        // Last chunk - return remainder
+        if remaining <= self.target_size {
+            let chunk = self.text[self.pos..].to_vec();
+            self.pos = self.text.len();
+            return Some(chunk);
+        }
+
+        let end = self.pos + self.target_size;
+        let window = &self.text[self.pos..end];
+
+        // Find last delimiter in window
+        let split_at = match find_last_delimiter(window, &self.delimiters, self.table.as_ref()) {
+            Some(pos) => self.pos + pos + 1,
+            None => end,
+        };
+
+        let chunk = self.text[self.pos..split_at].to_vec();
+        self.pos = split_at;
+        Some(chunk)
+    }
+
+    /// Reset the chunker to start from the beginning.
+    pub fn reset(&mut self) {
+        self.pos = 0;
+    }
+
+    /// Get a reference to the underlying text.
+    pub fn text(&self) -> &[u8] {
+        &self.text
+    }
+
+    /// Collect all chunk offsets as (start, end) pairs.
+    /// This is more efficient for FFI as it returns all offsets in one call.
+    pub fn collect_offsets(&mut self) -> Vec<(usize, usize)> {
+        self.init();
+
+        let mut offsets = Vec::new();
+        let mut pos = 0;
+
+        while pos < self.text.len() {
+            let remaining = self.text.len() - pos;
+
+            if remaining <= self.target_size {
+                offsets.push((pos, self.text.len()));
+                break;
+            }
+
+            let end = pos + self.target_size;
+            let window = &self.text[pos..end];
+
+            let split_at = match find_last_delimiter(window, &self.delimiters, self.table.as_ref()) {
+                Some(p) => pos + p + 1,
+                None => end,
+            };
+
+            offsets.push((pos, split_at));
+            pos = split_at;
+        }
+
+        offsets
     }
 }
 

@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "packages/python", "packages/wasm"]
+
 [package]
 name = "memchunk"
 version = "0.1.0"
@@ -16,12 +19,15 @@ memchr = "2"
 criterion = "0.5"
 text-splitter = "0.18"
 kiru = "0.1"
-semchunk-rs = "0.1"
 
 [[bench]]
 name = "chunk"
 harness = false
 
 [[bench]]
-name = "comparison"
+name = "kiru"
+harness = false
+
+[[bench]]
+name = "text_splitter"
 harness = false
