@@ -45,7 +45,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -m packages/python/Cargo.toml
+          args: --release --out dist -m packages/python/Cargo.toml --find-interpreter
           manylinux: auto
 
       - name: Upload wheels
