@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
 use kiru::{BytesChunker, Chunker as KiruChunker};
 
 fn bench_kiru(c: &mut Criterion) {
@@ -12,7 +12,10 @@ fn bench_kiru(c: &mut Criterion) {
     let kiru_chunker = BytesChunker::new(4096, 0).expect("Failed to create kiru chunker");
     group.bench_function("kiru", |b| {
         b.iter(|| {
-            let chunks: Vec<_> = kiru_chunker.clone().chunk_string(black_box(text.clone())).collect();
+            let chunks: Vec<_> = kiru_chunker
+                .clone()
+                .chunk_string(black_box(text.clone()))
+                .collect();
             black_box(chunks)
         })
     });

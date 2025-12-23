@@ -1,4 +1,4 @@
-use memchunk::{OwnedChunker, DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE};
+use memchunk::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, OwnedChunker};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
 

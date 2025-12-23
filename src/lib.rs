@@ -23,7 +23,11 @@ pub const DEFAULT_DELIMITERS: &[u8] = b"\n.?";
 /// Find last delimiter in window using SIMD-accelerated memchr (1-3 delimiters)
 /// or lookup table (4+ delimiters).
 #[inline]
-fn find_last_delimiter(window: &[u8], delimiters: &[u8], table: Option<&[bool; 256]>) -> Option<usize> {
+fn find_last_delimiter(
+    window: &[u8],
+    delimiters: &[u8],
+    table: Option<&[bool; 256]>,
+) -> Option<usize> {
     if let Some(t) = table {
         window.iter().rposition(|&b| t[b as usize])
     } else {
@@ -152,7 +156,7 @@ impl<'a> Iterator for Chunker<'a> {
         // Find last delimiter in window
         let split_at = match find_last_delimiter(window, self.delimiters, self.table.as_ref()) {
             Some(pos) => self.pos + pos + 1, // Include the delimiter
-            None => end,                      // No delimiter, hard split at target
+            None => end,                     // No delimiter, hard split at target
         };
 
         let chunk = &self.text[self.pos..split_at];
@@ -282,7 +286,8 @@ impl OwnedChunker {
             let end = pos + self.target_size;
             let window = &self.text[pos..end];
 
-            let split_at = match find_last_delimiter(window, &self.delimiters, self.table.as_ref()) {
+            let split_at = match find_last_delimiter(window, &self.delimiters, self.table.as_ref())
+            {
                 Some(p) => pos + p + 1,
                 None => end,
             };
