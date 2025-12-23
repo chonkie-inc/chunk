@@ -96,6 +96,7 @@ pub struct Chunker<'a> {
     pos: usize,
     table: Option<[bool; 256]>,
     initialized: bool,
+    prefix_mode: bool,
 }
 
 impl<'a> Chunker<'a> {
@@ -107,6 +108,7 @@ impl<'a> Chunker<'a> {
             pos: 0,
             table: None,
             initialized: false,
+            prefix_mode: false,
         }
     }
 
@@ -119,6 +121,30 @@ impl<'a> Chunker<'a> {
     /// Set the delimiters to split on.
     pub fn delimiters(mut self, delimiters: &'a [u8]) -> Self {
         self.delimiters = delimiters;
+        self
+    }
+
+    /// Put delimiter at the start of the next chunk (prefix mode).
+    ///
+    /// ```
+    /// use memchunk::chunk;
+    /// let chunks: Vec<_> = chunk(b"Hello World").size(8).delimiters(b" ").prefix().collect();
+    /// assert_eq!(chunks, vec![b"Hello".as_slice(), b" World".as_slice()]);
+    /// ```
+    pub fn prefix(mut self) -> Self {
+        self.prefix_mode = true;
+        self
+    }
+
+    /// Put delimiter at the end of the current chunk (suffix mode, default).
+    ///
+    /// ```
+    /// use memchunk::chunk;
+    /// let chunks: Vec<_> = chunk(b"Hello World").size(8).delimiters(b" ").suffix().collect();
+    /// assert_eq!(chunks, vec![b"Hello ".as_slice(), b"World".as_slice()]);
+    /// ```
+    pub fn suffix(mut self) -> Self {
+        self.prefix_mode = false;
         self
     }
 
@@ -155,8 +181,14 @@ impl<'a> Iterator for Chunker<'a> {
 
         // Find last delimiter in window
         let split_at = match find_last_delimiter(window, self.delimiters, self.table.as_ref()) {
-            Some(pos) => self.pos + pos + 1, // Include the delimiter
-            None => end,                     // No delimiter, hard split at target
+            Some(pos) => {
+                if self.prefix_mode {
+                    self.pos + pos // Delimiter goes to next chunk
+                } else {
+                    self.pos + pos + 1 // Delimiter stays with current chunk
+                }
+            }
+            None => end, // No delimiter, hard split at target
         };
 
         let chunk = &self.text[self.pos..split_at];
@@ -191,6 +223,7 @@ pub struct OwnedChunker {
     pos: usize,
     table: Option<[bool; 256]>,
     initialized: bool,
+    prefix_mode: bool,
 }
 
 impl OwnedChunker {
@@ -203,6 +236,7 @@ impl OwnedChunker {
             pos: 0,
             table: None,
             initialized: false,
+            prefix_mode: false,
         }
     }
 
@@ -215,6 +249,18 @@ impl OwnedChunker {
     /// Set the delimiters to split on.
     pub fn delimiters(mut self, delimiters: Vec<u8>) -> Self {
         self.delimiters = delimiters;
+        self
+    }
+
+    /// Put delimiter at the start of the next chunk (prefix mode).
+    pub fn prefix(mut self) -> Self {
+        self.prefix_mode = true;
+        self
+    }
+
+    /// Put delimiter at the end of the current chunk (suffix mode, default).
+    pub fn suffix(mut self) -> Self {
+        self.prefix_mode = false;
         self
     }
 
@@ -248,7 +294,13 @@ impl OwnedChunker {
 
         // Find last delimiter in window
         let split_at = match find_last_delimiter(window, &self.delimiters, self.table.as_ref()) {
-            Some(pos) => self.pos + pos + 1,
+            Some(pos) => {
+                if self.prefix_mode {
+                    self.pos + pos
+                } else {
+                    self.pos + pos + 1
+                }
+            }
             None => end,
         };
 
@@ -288,7 +340,13 @@ impl OwnedChunker {
 
             let split_at = match find_last_delimiter(window, &self.delimiters, self.table.as_ref())
             {
-                Some(p) => pos + p + 1,
+                Some(p) => {
+                    if self.prefix_mode {
+                        pos + p
+                    } else {
+                        pos + p + 1
+                    }
+                }
                 None => end,
             };
 
@@ -375,5 +433,40 @@ mod tests {
         // Should work with just defaults
         let chunks: Vec<_> = chunk(text).collect();
         assert!(!chunks.is_empty());
+    }
+
+    #[test]
+    fn test_suffix_mode_default() {
+        let text = b"Hello World Test";
+        let chunks: Vec<_> = chunk(text).size(8).delimiters(b" ").collect();
+        assert_eq!(chunks[0], b"Hello ");
+        assert_eq!(chunks[1], b"World ");
+        assert_eq!(chunks[2], b"Test");
+    }
+
+    #[test]
+    fn test_prefix_mode() {
+        let text = b"Hello World Test";
+        let chunks: Vec<_> = chunk(text).size(8).delimiters(b" ").prefix().collect();
+        assert_eq!(chunks[0], b"Hello");
+        assert_eq!(chunks[1], b" World");
+        assert_eq!(chunks[2], b" Test");
+    }
+
+    #[test]
+    fn test_suffix_mode_explicit() {
+        let text = b"Hello World Test";
+        let chunks: Vec<_> = chunk(text).size(8).delimiters(b" ").suffix().collect();
+        assert_eq!(chunks[0], b"Hello ");
+        assert_eq!(chunks[1], b"World ");
+        assert_eq!(chunks[2], b"Test");
+    }
+
+    #[test]
+    fn test_prefix_preserves_total_bytes() {
+        let text = b"Hello World Test More Words Here";
+        let chunks: Vec<_> = chunk(text).size(10).delimiters(b" ").prefix().collect();
+        let total: usize = chunks.iter().map(|c| c.len()).sum();
+        assert_eq!(total, text.len());
     }
 }
