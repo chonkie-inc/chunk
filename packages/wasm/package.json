@@ -1,6 +1,6 @@
 {
   "name": "memchunk",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "The fastest semantic text chunking library",
   "type": "module",
   "main": "index.js",

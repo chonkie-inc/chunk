@@ -3,7 +3,7 @@ members = [".", "packages/python", "packages/wasm"]
 
 [package]
 name = "memchunk"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "The fastest semantic text chunking library — up to 1TB/s chunking throughput"
 license = "MIT OR Apache-2.0"
@@ -11,7 +11,7 @@ repository = "https://github.com/chonkie-inc/memchunk"
 readme = "README.md"
 keywords = ["chunking", "text", "simd", "nlp", "tokenization"]
 categories = ["text-processing", "algorithms"]
-exclude = ["benches/data/*", "packages/*"]
+exclude = ["benches/data/*", "packages/*", "assets/*", "scripts/*", "*.png", "*.svg"]
 
 [dependencies]
 memchr = "2"
