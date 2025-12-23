@@ -10,6 +10,8 @@
 
 <p align="center">
   <a href="https://crates.io/crates/memchunk"><img src="https://img.shields.io/crates/v/memchunk.svg" alt="crates.io"></a>
+  <a href="https://pypi.org/project/memchunk"><img src="https://img.shields.io/pypi/v/memchunk.svg" alt="PyPI"></a>
+  <a href="https://www.npmjs.com/package/memchunk"><img src="https://img.shields.io/npm/v/memchunk.svg" alt="npm"></a>
   <a href="https://docs.rs/memchunk"><img src="https://docs.rs/memchunk/badge.svg" alt="docs.rs"></a>
   <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg" alt="License"></a>
 </p>
