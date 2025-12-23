@@ -22,7 +22,7 @@ you know how every chunking library claims to be fast? yeah, we actually meant i
 
 **memchunk** splits text at semantic boundaries (periods, newlines, the usual suspects) and does it stupid fast. we're talking "chunk the entire english wikipedia in 120ms" fast.
 
-want to know how? [read the blog post](https://minha.sh/posts/so-you-want-to-chunk-really-fast) where we nerd out about SIMD instructions and lookup tables.
+want to know how? [read the blog post](https://minha.sh/posts/so,-you-want-to-chunk-really-fast) where we nerd out about SIMD instructions and lookup tables.
 
 <p align="center">
   <img src="assets/benchmark.png" alt="Benchmark comparison" width="700">
