@@ -30,3 +30,8 @@ benches/data/
 
 # Blog draft
 blog.md
+
+# Python
+*.pyc
+*.so
+__pycache__/
