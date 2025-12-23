@@ -5,7 +5,7 @@
 <h1 align="center">memchunk</h1>
 
 <p align="center">
-  <em>The fastest text chunking library — up to 1TB/s throughput</em>
+  <em>the fastest text chunking library — up to 1 TB/s throughput</em>
 </p>
 
 <p align="center">
@@ -16,7 +16,11 @@
 
 ---
 
-**memchunk** splits text into chunks at semantic boundaries (sentences, paragraphs) using SIMD-accelerated search. It's designed for RAG pipelines where you need to chunk massive amounts of text *fast*.
+you know how every chunking library claims to be fast? yeah, we actually meant it.
+
+**memchunk** splits text at semantic boundaries (periods, newlines, the usual suspects) and does it stupid fast. we're talking "chunk the entire english wikipedia in 120ms" fast.
+
+want to know how? [read the blog post](blog.md) where we nerd out about SIMD instructions and lookup tables.
 
 <p align="center">
   <img src="assets/benchmark.png" alt="Benchmark comparison" width="700">

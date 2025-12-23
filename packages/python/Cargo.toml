@@ -1,0 +1,14 @@
+[package]
+name = "memchunk-python"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+name = "_memchunk"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.27", features = ["extension-module"] }
+memchunk = { path = "../.." }

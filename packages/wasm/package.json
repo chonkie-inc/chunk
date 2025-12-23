@@ -1,0 +1,31 @@
+{
+  "name": "memchunk",
+  "version": "0.1.0",
+  "description": "The fastest semantic text chunking library",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "pkg/"
+  ],
+  "scripts": {
+    "build": "wasm-pack build --target web",
+    "test": "node --test tests/"
+  },
+  "keywords": [
+    "chunking",
+    "text",
+    "simd",
+    "nlp",
+    "tokenization",
+    "rag",
+    "wasm",
+    "webassembly"
+  ],
+  "author": "Bhavnick Minhas",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chonkie-inc/memchunk"
+  }
+}

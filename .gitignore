@@ -27,3 +27,6 @@ target
 
 # Benchmark data
 benches/data/
+
+# Blog draft
+blog.md
