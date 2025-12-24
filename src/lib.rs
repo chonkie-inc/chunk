@@ -183,12 +183,18 @@ impl<'a> Iterator for Chunker<'a> {
         let split_at = match find_last_delimiter(window, self.delimiters, self.table.as_ref()) {
             Some(pos) => {
                 if self.prefix_mode {
-                    self.pos + pos // Delimiter goes to next chunk
+                    // In prefix mode, delimiter goes to next chunk (split before it)
+                    // If delimiter is at pos 0, this would create empty chunk - use hard split instead
+                    if pos == 0 {
+                        end
+                    } else {
+                        self.pos + pos
+                    }
                 } else {
                     self.pos + pos + 1 // Delimiter stays with current chunk
                 }
             }
-            None => end, // No delimiter, hard split at target
+            None => end, // No delimiter found, hard split at target
         };
 
         let chunk = &self.text[self.pos..split_at];
@@ -296,12 +302,18 @@ impl OwnedChunker {
         let split_at = match find_last_delimiter(window, &self.delimiters, self.table.as_ref()) {
             Some(pos) => {
                 if self.prefix_mode {
-                    self.pos + pos
+                    // In prefix mode, delimiter goes to next chunk (split before it)
+                    // If delimiter is at pos 0, this would create empty chunk - use hard split instead
+                    if pos == 0 {
+                        end
+                    } else {
+                        self.pos + pos
+                    }
                 } else {
-                    self.pos + pos + 1
+                    self.pos + pos + 1 // Delimiter stays with current chunk
                 }
             }
-            None => end,
+            None => end, // No delimiter found, hard split at target
         };
 
         let chunk = self.text[self.pos..split_at].to_vec();
@@ -342,12 +354,18 @@ impl OwnedChunker {
             {
                 Some(p) => {
                     if self.prefix_mode {
-                        pos + p
+                        // In prefix mode, delimiter goes to next chunk (split before it)
+                        // If delimiter is at pos 0, this would create empty chunk - use hard split instead
+                        if p == 0 {
+                            end
+                        } else {
+                            pos + p
+                        }
                     } else {
-                        pos + p + 1
+                        pos + p + 1 // Delimiter stays with current chunk
                     }
                 }
-                None => end,
+                None => end, // No delimiter found, hard split at target
             };
 
             offsets.push((pos, split_at));
@@ -468,5 +486,60 @@ mod tests {
         let chunks: Vec<_> = chunk(text).size(10).delimiters(b" ").prefix().collect();
         let total: usize = chunks.iter().map(|c| c.len()).sum();
         assert_eq!(total, text.len());
+    }
+}
+
+#[test]
+fn test_consecutive_delimiters() {
+    // Test with consecutive newlines
+    let text = b"Hello\n\nWorld";
+
+    // Suffix mode (default)
+    let chunks: Vec<_> = chunk(text).size(8).delimiters(b"\n").collect();
+    let total: usize = chunks.iter().map(|c| c.len()).sum();
+    assert_eq!(total, text.len());
+
+    // Prefix mode
+    let chunks: Vec<_> = chunk(text).size(8).delimiters(b"\n").prefix().collect();
+    let total: usize = chunks.iter().map(|c| c.len()).sum();
+    assert_eq!(total, text.len());
+
+    // Smaller target to force more splits
+    let chunks: Vec<_> = chunk(text).size(4).delimiters(b"\n").prefix().collect();
+    let total: usize = chunks.iter().map(|c| c.len()).sum();
+    assert_eq!(total, text.len());
+}
+
+#[test]
+fn test_prefix_mode_delimiter_at_window_start() {
+    // This was causing an infinite loop before the fix.
+    // When window starts with delimiter in prefix mode, we now hard split at target size.
+    let text = b"Hello world";
+
+    // With size=5: "Hello" (no delim) → "Hello", then " worl" (delim at 0) → hard split
+    let chunks: Vec<_> = chunk(text).size(5).delimiters(b" ").prefix().collect();
+
+    // Should not hang and should preserve all bytes
+    let total: usize = chunks.iter().map(|c| c.len()).sum();
+    assert_eq!(total, text.len());
+
+    // Hard split behavior: ["Hello", " worl", "d"]
+    assert_eq!(chunks[0], b"Hello");
+    assert_eq!(chunks[1], b" worl");
+    assert_eq!(chunks[2], b"d");
+}
+
+#[test]
+fn test_prefix_mode_small_chunks() {
+    // More edge cases with small chunks
+    let text = b"a b c d e";
+
+    let chunks: Vec<_> = chunk(text).size(2).delimiters(b" ").prefix().collect();
+    let total: usize = chunks.iter().map(|c| c.len()).sum();
+    assert_eq!(total, text.len());
+
+    // Each chunk should be non-empty
+    for chunk in &chunks {
+        assert!(!chunk.is_empty(), "Found empty chunk!");
     }
 }
