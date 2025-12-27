@@ -23,8 +23,16 @@ fn main() {
 
     println!("Benchmark: Pattern vs Delimiter Throughput");
     println!("==========================================");
-    println!("Text with spaces:    {:.2} MB ({} bytes)", size_mb_spaces, text_bytes_spaces.len());
-    println!("Text with metaspace: {:.2} MB ({} bytes)", size_mb_metaspace, text_bytes_metaspace.len());
+    println!(
+        "Text with spaces:    {:.2} MB ({} bytes)",
+        size_mb_spaces,
+        text_bytes_spaces.len()
+    );
+    println!(
+        "Text with metaspace: {:.2} MB ({} bytes)",
+        size_mb_metaspace,
+        text_bytes_metaspace.len()
+    );
     println!();
 
     const ITERATIONS: usize = 10;
@@ -33,14 +41,24 @@ fn main() {
     for &chunk_size in &[1024, 4096, 16384, 65536] {
         println!("=== Chunk size: {} bytes ===", chunk_size);
         bench_delimiter(text_bytes_spaces, size_mb_spaces, chunk_size, ITERATIONS);
-        bench_pattern(text_bytes_metaspace, size_mb_metaspace, metaspace.as_bytes(), chunk_size, ITERATIONS);
+        bench_pattern(
+            text_bytes_metaspace,
+            size_mb_metaspace,
+            metaspace.as_bytes(),
+            chunk_size,
+            ITERATIONS,
+        );
         println!();
     }
 }
 
 fn bench_delimiter(text: &[u8], size_mb: f64, chunk_size: usize, iterations: usize) {
     // Warmup
-    let _: Vec<_> = chunk(text).size(chunk_size).delimiters(b" ").prefix().collect();
+    let _: Vec<_> = chunk(text)
+        .size(chunk_size)
+        .delimiters(b" ")
+        .prefix()
+        .collect();
 
     let mut times = Vec::new();
     let mut num_chunks = 0;
@@ -57,13 +75,21 @@ fn bench_delimiter(text: &[u8], size_mb: f64, chunk_size: usize, iterations: usi
     }
     let avg = times.iter().sum::<f64>() / iterations as f64;
     let throughput = size_mb / avg / 1000.0; // GB/s
-    println!("  Single-byte (space):    {:>7.2} GB/s  ({:>6} chunks, {:.3}ms avg)",
-             throughput, num_chunks, avg * 1000.0);
+    println!(
+        "  Single-byte (space):    {:>7.2} GB/s  ({:>6} chunks, {:.3}ms avg)",
+        throughput,
+        num_chunks,
+        avg * 1000.0
+    );
 }
 
 fn bench_pattern(text: &[u8], size_mb: f64, pattern: &[u8], chunk_size: usize, iterations: usize) {
     // Warmup
-    let _: Vec<_> = chunk(text).size(chunk_size).pattern(pattern).prefix().collect();
+    let _: Vec<_> = chunk(text)
+        .size(chunk_size)
+        .pattern(pattern)
+        .prefix()
+        .collect();
 
     let mut times = Vec::new();
     let mut num_chunks = 0;
@@ -80,6 +106,10 @@ fn bench_pattern(text: &[u8], size_mb: f64, pattern: &[u8], chunk_size: usize, i
     }
     let avg = times.iter().sum::<f64>() / iterations as f64;
     let throughput = size_mb / avg / 1000.0; // GB/s
-    println!("  Multi-byte (metaspace): {:>7.2} GB/s  ({:>6} chunks, {:.3}ms avg)",
-             throughput, num_chunks, avg * 1000.0);
+    println!(
+        "  Multi-byte (metaspace): {:>7.2} GB/s  ({:>6} chunks, {:.3}ms avg)",
+        throughput,
+        num_chunks,
+        avg * 1000.0
+    );
 }

@@ -58,12 +58,7 @@ impl Chunker {
     /// @param pattern - Multi-byte pattern to split on (as Uint8Array)
     /// @param prefix - Put pattern at start of next chunk (default: false)
     #[wasm_bindgen]
-    pub fn with_pattern(
-        text: &[u8],
-        size: usize,
-        pattern: &[u8],
-        prefix: Option<bool>,
-    ) -> Chunker {
+    pub fn with_pattern(text: &[u8], size: usize, pattern: &[u8], prefix: Option<bool>) -> Chunker {
         let mut inner = OwnedChunker::new(text.to_vec())
             .size(size)
             .pattern(pattern.to_vec());
