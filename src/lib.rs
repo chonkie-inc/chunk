@@ -47,21 +47,6 @@ fn find_last_delimiter(
     }
 }
 
-/// Find last occurrence of a multi-byte pattern in window using SIMD memmem.
-/// Returns the start position of the match.
-#[inline]
-fn find_last_pattern(window: &[u8], pattern: &[u8]) -> Option<usize> {
-    if pattern.is_empty() {
-        return None;
-    }
-    // Optimize single-byte patterns to use faster memrchr
-    if pattern.len() == 1 {
-        memchr::memrchr(pattern[0], window)
-    } else {
-        memmem::rfind(window, pattern)
-    }
-}
-
 /// Build lookup table for 4+ delimiters.
 #[inline]
 fn build_table(delimiters: &[u8]) -> Option<[bool; 256]> {
@@ -74,6 +59,185 @@ fn build_table(delimiters: &[u8]) -> Option<[bool; 256]> {
     } else {
         None
     }
+}
+
+/// Compute the split position given the current state.
+///
+/// Returns the position to split at, handling pattern mode vs delimiter mode,
+/// prefix vs suffix mode, and the special `text.len()` signal.
+#[inline]
+fn compute_split_at(
+    text: &[u8],
+    pos: usize,
+    end: usize,
+    pattern: Option<&[u8]>,
+    delimiters: &[u8],
+    table: Option<&[bool; 256]>,
+    prefix_mode: bool,
+    consecutive: bool,
+    forward_fallback: bool,
+) -> usize {
+    if let Some(pattern) = pattern {
+        // Multi-byte pattern mode
+        match find_pattern_boundary(text, pattern, pos, end, consecutive, forward_fallback) {
+            Some(found_pos) => {
+                if found_pos == text.len() {
+                    // Special case: text.len() means "take all remaining"
+                    found_pos
+                } else if prefix_mode {
+                    // Split BEFORE pattern (pattern goes to next chunk)
+                    if found_pos == pos { end } else { found_pos }
+                } else {
+                    // Split AFTER pattern (pattern stays with current chunk)
+                    found_pos + pattern.len()
+                }
+            }
+            None => end, // No pattern found, hard split at target
+        }
+    } else {
+        // Single-byte delimiters mode
+        let window = &text[pos..end];
+        match find_last_delimiter(window, delimiters, table) {
+            Some(rel_pos) => {
+                if prefix_mode {
+                    // In prefix mode, delimiter goes to next chunk (split before it)
+                    // If delimiter is at pos 0, this would create empty chunk - use hard split
+                    if rel_pos == 0 { end } else { pos + rel_pos }
+                } else {
+                    pos + rel_pos + 1 // Delimiter stays with current chunk
+                }
+            }
+            None => end, // No delimiter found, hard split at target
+        }
+    }
+}
+
+/// Find pattern boundary that is the START of a consecutive run.
+///
+/// Searches backward from `target_end`, then forward if `forward_fallback` is true.
+/// When `consecutive` is true, returns position of a pattern that is NOT preceded
+/// by another instance of the same pattern.
+///
+/// Returns positions > start (never returns start itself, as that wouldn't make progress).
+fn find_pattern_boundary(
+    text: &[u8],
+    pattern: &[u8],
+    start: usize,
+    target_end: usize,
+    consecutive: bool,
+    forward_fallback: bool,
+) -> Option<usize> {
+    let plen = pattern.len();
+    if plen == 0 || start >= text.len() {
+        return None;
+    }
+
+    let target_end = target_end.min(text.len());
+    let window = &text[start..target_end];
+
+    // Backward search
+    if consecutive {
+        // Find last pattern that is START of consecutive run
+        let mut search_end = window.len();
+        while search_end > 0 {
+            let rel_pos = if plen == 1 {
+                memchr::memrchr(pattern[0], &window[..search_end])
+            } else {
+                memmem::rfind(&window[..search_end], pattern)
+            };
+
+            if let Some(rel_pos) = rel_pos {
+                let abs_pos = start + rel_pos;
+                // Check if this is START of consecutive run (not preceded by same pattern)
+                if abs_pos < plen || &text[abs_pos - plen..abs_pos] != pattern {
+                    // Found valid boundary, but skip if it equals start (no progress)
+                    if abs_pos > start {
+                        return Some(abs_pos);
+                    }
+                    // We've traced back to start - chunk is full of consecutive patterns
+                    // Fall through to forward fallback
+                    break;
+                }
+                // In middle of run, search earlier
+                search_end = rel_pos;
+            } else {
+                break;
+            }
+        }
+    } else {
+        // Simple case: just find last occurrence (but not at start position)
+        let rel_pos = if plen == 1 {
+            memchr::memrchr(pattern[0], window)
+        } else {
+            memmem::rfind(window, pattern)
+        };
+        if let Some(rel_pos) = rel_pos {
+            let abs_pos = start + rel_pos;
+            if abs_pos > start {
+                return Some(abs_pos);
+            }
+        }
+    }
+
+    // Forward fallback search - find next boundary after target_end
+    if forward_fallback {
+        // First, determine where to start searching forward.
+        // If we're at the start of a consecutive run, skip past the entire run.
+        let mut forward_from = target_end;
+
+        if consecutive && start + plen <= text.len() && &text[start..start + plen] == pattern {
+            // We're at a pattern at `start`. Skip all consecutive patterns.
+            let mut pos = start;
+            while pos + plen <= text.len() && &text[pos..pos + plen] == pattern {
+                pos += plen;
+            }
+            // Start searching from end of consecutive run, but not before target_end
+            forward_from = forward_from.max(pos);
+        }
+
+        if forward_from < text.len() {
+            let forward_window = &text[forward_from..];
+
+            if consecutive {
+                // Find first pattern that is START of consecutive run
+                let mut search_start = 0;
+                while search_start < forward_window.len() {
+                    let rel_pos = if plen == 1 {
+                        memchr::memchr(pattern[0], &forward_window[search_start..])
+                    } else {
+                        memmem::find(&forward_window[search_start..], pattern)
+                    };
+
+                    if let Some(rel_pos) = rel_pos {
+                        let abs_pos = forward_from + search_start + rel_pos;
+                        if abs_pos < plen || &text[abs_pos - plen..abs_pos] != pattern {
+                            return Some(abs_pos);
+                        }
+                        // In middle of run, search later
+                        search_start += rel_pos + 1;
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                let rel_pos = if plen == 1 {
+                    memchr::memchr(pattern[0], forward_window)
+                } else {
+                    memmem::find(forward_window, pattern)
+                };
+                if let Some(rel_pos) = rel_pos {
+                    return Some(forward_from + rel_pos);
+                }
+            }
+        }
+
+        // No pattern found forward. Return text.len() to include all remaining
+        // text in one chunk. This avoids O(n²) behavior from repeatedly searching
+        // forward through the entire remaining text on each iteration.
+        return Some(text.len());
+    }
+
+    None
 }
 
 /// Chunk text at delimiter boundaries.
@@ -120,6 +284,10 @@ pub struct Chunker<'a> {
     table: Option<[bool; 256]>,
     initialized: bool,
     prefix_mode: bool,
+    /// When true, find the START of consecutive pattern runs (not middle)
+    consecutive: bool,
+    /// When true, search forward if no pattern found in backward window
+    forward_fallback: bool,
 }
 
 impl<'a> Chunker<'a> {
@@ -133,6 +301,8 @@ impl<'a> Chunker<'a> {
             table: None,
             initialized: false,
             prefix_mode: false,
+            consecutive: false,
+            forward_fallback: false,
         }
     }
 
@@ -197,6 +367,63 @@ impl<'a> Chunker<'a> {
         self
     }
 
+    /// Enable consecutive pattern handling.
+    ///
+    /// When splitting at a pattern, ensures we split at the START of a
+    /// consecutive run, not in the middle. For example, "word▁▁▁next"
+    /// splits as ["word"]["▁▁▁next"], not ["word▁▁"]["▁next"].
+    ///
+    /// This is useful for patterns that can merge (like BPE tokenization)
+    /// or when consecutive delimiters have semantic meaning (like `\n\n`).
+    ///
+    /// Only applies to multi-byte patterns set via `.pattern()`.
+    ///
+    /// ```
+    /// use memchunk::chunk;
+    /// let text = b"word\xE2\x96\x81\xE2\x96\x81\xE2\x96\x81next"; // word▁▁▁next
+    /// let metaspace = b"\xE2\x96\x81";
+    /// let chunks: Vec<_> = chunk(text)
+    ///     .pattern(metaspace)
+    ///     .size(10)
+    ///     .prefix()
+    ///     .consecutive()
+    ///     .collect();
+    /// assert_eq!(chunks[0], b"word");
+    /// ```
+    pub fn consecutive(mut self) -> Self {
+        self.consecutive = true;
+        self
+    }
+
+    /// Enable forward fallback search.
+    ///
+    /// When no pattern is found in the backward search window, search
+    /// forward from target_end instead of doing a hard split.
+    ///
+    /// This ensures splits always occur at semantic boundaries when possible,
+    /// even if the nearest boundary is past the target size.
+    ///
+    /// Only applies to multi-byte patterns set via `.pattern()`.
+    ///
+    /// ```
+    /// use memchunk::chunk;
+    /// let text = b"verylongword\xE2\x96\x81short"; // verylongword▁short
+    /// let metaspace = b"\xE2\x96\x81";
+    /// let chunks: Vec<_> = chunk(text)
+    ///     .pattern(metaspace)
+    ///     .size(6)
+    ///     .prefix()
+    ///     .forward_fallback()
+    ///     .collect();
+    /// // Without forward_fallback: hard split at position 6
+    /// // With forward_fallback: finds ▁ at position 12
+    /// assert_eq!(chunks[0], b"verylongword");
+    /// ```
+    pub fn forward_fallback(mut self) -> Self {
+        self.forward_fallback = true;
+        self
+    }
+
     /// Initialize lookup table if needed (called on first iteration).
     fn init(&mut self) {
         if !self.initialized {
@@ -226,38 +453,18 @@ impl<'a> Iterator for Chunker<'a> {
         }
 
         let end = self.pos + self.target_size;
-        let window = &self.text[self.pos..end];
 
-        // Find split point - use pattern mode or delimiter mode
-        let split_at = if let Some(pattern) = self.pattern {
-            // Multi-byte pattern mode
-            match find_last_pattern(window, pattern) {
-                Some(pos) => {
-                    if self.prefix_mode {
-                        // Split BEFORE pattern (pattern goes to next chunk)
-                        if pos == 0 { end } else { self.pos + pos }
-                    } else {
-                        // Split AFTER pattern (pattern stays with current chunk)
-                        self.pos + pos + pattern.len()
-                    }
-                }
-                None => end, // No pattern found, hard split at target
-            }
-        } else {
-            // Single-byte delimiters mode
-            match find_last_delimiter(window, self.delimiters, self.table.as_ref()) {
-                Some(pos) => {
-                    if self.prefix_mode {
-                        // In prefix mode, delimiter goes to next chunk (split before it)
-                        // If delimiter is at pos 0, this would create empty chunk - use hard split instead
-                        if pos == 0 { end } else { self.pos + pos }
-                    } else {
-                        self.pos + pos + 1 // Delimiter stays with current chunk
-                    }
-                }
-                None => end, // No delimiter found, hard split at target
-            }
-        };
+        let split_at = compute_split_at(
+            self.text,
+            self.pos,
+            end,
+            self.pattern,
+            self.delimiters,
+            self.table.as_ref(),
+            self.prefix_mode,
+            self.consecutive,
+            self.forward_fallback,
+        );
 
         let chunk = &self.text[self.pos..split_at];
         self.pos = split_at;
@@ -293,6 +500,8 @@ pub struct OwnedChunker {
     table: Option<[bool; 256]>,
     initialized: bool,
     prefix_mode: bool,
+    consecutive: bool,
+    forward_fallback: bool,
 }
 
 impl OwnedChunker {
@@ -307,6 +516,8 @@ impl OwnedChunker {
             table: None,
             initialized: false,
             prefix_mode: false,
+            consecutive: false,
+            forward_fallback: false,
         }
     }
 
@@ -347,6 +558,24 @@ impl OwnedChunker {
         self
     }
 
+    /// Enable consecutive pattern handling.
+    ///
+    /// When splitting at a pattern, ensures we split at the START of a
+    /// consecutive run, not in the middle.
+    pub fn consecutive(mut self) -> Self {
+        self.consecutive = true;
+        self
+    }
+
+    /// Enable forward fallback search.
+    ///
+    /// When no pattern is found in the backward search window, search
+    /// forward from target_end instead of doing a hard split.
+    pub fn forward_fallback(mut self) -> Self {
+        self.forward_fallback = true;
+        self
+    }
+
     /// Initialize lookup table if needed.
     fn init(&mut self) {
         if !self.initialized {
@@ -373,38 +602,18 @@ impl OwnedChunker {
         }
 
         let end = self.pos + self.target_size;
-        let window = &self.text[self.pos..end];
 
-        // Find split point - use pattern mode or delimiter mode
-        let split_at = if let Some(ref pattern) = self.pattern {
-            // Multi-byte pattern mode
-            match find_last_pattern(window, pattern) {
-                Some(pos) => {
-                    if self.prefix_mode {
-                        // Split BEFORE pattern (pattern goes to next chunk)
-                        if pos == 0 { end } else { self.pos + pos }
-                    } else {
-                        // Split AFTER pattern (pattern stays with current chunk)
-                        self.pos + pos + pattern.len()
-                    }
-                }
-                None => end, // No pattern found, hard split at target
-            }
-        } else {
-            // Single-byte delimiters mode
-            match find_last_delimiter(window, &self.delimiters, self.table.as_ref()) {
-                Some(pos) => {
-                    if self.prefix_mode {
-                        // In prefix mode, delimiter goes to next chunk (split before it)
-                        // If delimiter is at pos 0, this would create empty chunk - use hard split instead
-                        if pos == 0 { end } else { self.pos + pos }
-                    } else {
-                        self.pos + pos + 1 // Delimiter stays with current chunk
-                    }
-                }
-                None => end, // No delimiter found, hard split at target
-            }
-        };
+        let split_at = compute_split_at(
+            &self.text,
+            self.pos,
+            end,
+            self.pattern.as_deref(),
+            &self.delimiters,
+            self.table.as_ref(),
+            self.prefix_mode,
+            self.consecutive,
+            self.forward_fallback,
+        );
 
         let chunk = self.text[self.pos..split_at].to_vec();
         self.pos = split_at;
@@ -438,36 +647,18 @@ impl OwnedChunker {
             }
 
             let end = pos + self.target_size;
-            let window = &self.text[pos..end];
 
-            // Find split point - use pattern mode or delimiter mode
-            let split_at = if let Some(ref pattern) = self.pattern {
-                // Multi-byte pattern mode
-                match find_last_pattern(window, pattern) {
-                    Some(p) => {
-                        if self.prefix_mode {
-                            if p == 0 { end } else { pos + p }
-                        } else {
-                            pos + p + pattern.len()
-                        }
-                    }
-                    None => end,
-                }
-            } else {
-                // Single-byte delimiters mode
-                match find_last_delimiter(window, &self.delimiters, self.table.as_ref()) {
-                    Some(p) => {
-                        if self.prefix_mode {
-                            // In prefix mode, delimiter goes to next chunk (split before it)
-                            // If delimiter is at pos 0, this would create empty chunk - use hard split instead
-                            if p == 0 { end } else { pos + p }
-                        } else {
-                            pos + p + 1 // Delimiter stays with current chunk
-                        }
-                    }
-                    None => end, // No delimiter found, hard split at target
-                }
-            };
+            let split_at = compute_split_at(
+                &self.text,
+                pos,
+                end,
+                self.pattern.as_deref(),
+                &self.delimiters,
+                self.table.as_ref(),
+                self.prefix_mode,
+                self.consecutive,
+                self.forward_fallback,
+            );
 
             offsets.push((pos, split_at));
             pos = split_at;
@@ -793,4 +984,186 @@ fn test_owned_chunker_pattern_collect_offsets() {
     // Verify slicing produces correct chunks
     assert_eq!(&text[offsets[0].0..offsets[0].1], "Hello".as_bytes());
     assert_eq!(&text[offsets[1].0..offsets[1].1], "▁World▁Test".as_bytes());
+}
+
+// ============ Consecutive and Forward Fallback Tests ============
+
+#[test]
+fn test_consecutive_pattern_basic() {
+    // word▁▁▁next - should split at START of ▁▁▁, not in the middle
+    let metaspace = b"\xE2\x96\x81";
+    let text = b"word\xE2\x96\x81\xE2\x96\x81\xE2\x96\x81next"; // word▁▁▁next
+
+    // Without consecutive: may split in middle of ▁▁▁
+    let chunks_default: Vec<_> = chunk(text)
+        .pattern(metaspace)
+        .size(10)
+        .prefix()
+        .collect();
+
+    // With consecutive: splits at START of ▁▁▁
+    let chunks_consecutive: Vec<_> = chunk(text)
+        .pattern(metaspace)
+        .size(10)
+        .prefix()
+        .consecutive()
+        .collect();
+
+    // Both should preserve all bytes
+    let total_default: usize = chunks_default.iter().map(|c| c.len()).sum();
+    let total_consecutive: usize = chunks_consecutive.iter().map(|c| c.len()).sum();
+    assert_eq!(total_default, text.len());
+    assert_eq!(total_consecutive, text.len());
+
+    // Consecutive mode should split at "word" | "▁▁▁next"
+    assert_eq!(chunks_consecutive[0], b"word");
+    assert!(chunks_consecutive[1].starts_with(metaspace));
+}
+
+#[test]
+fn test_consecutive_preserves_runs() {
+    let metaspace = b"\xE2\x96\x81";
+    // Three consecutive metaspaces should stay together
+    // abc = 3, ▁▁▁ = 9, xyz = 3 => total = 15 bytes
+    let text = b"abc\xE2\x96\x81\xE2\x96\x81\xE2\x96\x81xyz";
+
+    // Need forward_fallback to find boundary past the run when run extends past target
+    let chunks: Vec<_> = chunk(text)
+        .pattern(metaspace)
+        .size(8)
+        .prefix()
+        .consecutive()
+        .forward_fallback()
+        .collect();
+
+    // First chunk should be "abc", second should have all three metaspaces + xyz
+    assert_eq!(chunks[0], b"abc");
+    // Verify the three consecutive metaspaces are together
+    assert!(chunks[1].starts_with(b"\xE2\x96\x81\xE2\x96\x81\xE2\x96\x81"));
+    assert_eq!(chunks[1], b"\xE2\x96\x81\xE2\x96\x81\xE2\x96\x81xyz");
+}
+
+#[test]
+fn test_forward_fallback_basic() {
+    let metaspace = b"\xE2\x96\x81";
+    // verylongword▁short - pattern is past target_size
+    let text = b"verylongword\xE2\x96\x81short";
+
+    // Without forward_fallback: hard split at target
+    let chunks_default: Vec<_> = chunk(text)
+        .pattern(metaspace)
+        .size(6)
+        .prefix()
+        .collect();
+
+    // With forward_fallback: finds ▁ past target
+    let chunks_forward: Vec<_> = chunk(text)
+        .pattern(metaspace)
+        .size(6)
+        .prefix()
+        .forward_fallback()
+        .collect();
+
+    // Default should hard-split at position 6
+    assert_eq!(chunks_default[0], b"verylo");
+
+    // Forward fallback should find metaspace at position 12
+    assert_eq!(chunks_forward[0], b"verylongword");
+    assert!(chunks_forward[1].starts_with(metaspace));
+}
+
+#[test]
+fn test_consecutive_and_forward_fallback_combined() {
+    let metaspace = b"\xE2\x96\x81";
+    // longword▁▁▁short - pattern is past target and consecutive
+    let text = b"longword\xE2\x96\x81\xE2\x96\x81\xE2\x96\x81short";
+
+    let chunks: Vec<_> = chunk(text)
+        .pattern(metaspace)
+        .size(6)
+        .prefix()
+        .consecutive()
+        .forward_fallback()
+        .collect();
+
+    // Should find START of ▁▁▁ via forward search
+    assert_eq!(chunks[0], b"longword");
+    assert!(chunks[1].starts_with(b"\xE2\x96\x81\xE2\x96\x81\xE2\x96\x81"));
+}
+
+#[test]
+fn test_forward_fallback_no_pattern_anywhere() {
+    // No pattern in text at all - forward search finds nothing, returns all remaining
+    // This avoids O(n²) behavior from repeatedly searching forward
+    let text = b"abcdefghijklmnop";
+
+    let chunks: Vec<_> = chunk(text)
+        .pattern(b"XYZ")
+        .size(5)
+        .forward_fallback()
+        .collect();
+
+    // First chunk hard splits (backward found nothing), forward finds nothing → take all
+    assert_eq!(chunks.len(), 1);
+    assert_eq!(chunks[0], text.as_slice());
+}
+
+#[test]
+fn test_consecutive_single_byte_pattern() {
+    // Test consecutive with single-byte pattern (uses memrchr optimization)
+    let text = b"word   next"; // Three spaces
+
+    let chunks: Vec<_> = chunk(text)
+        .pattern(b" ")
+        .size(6)
+        .prefix()
+        .consecutive()
+        .collect();
+
+    // Should split at start of space run
+    assert_eq!(chunks[0], b"word");
+    assert!(chunks[1].starts_with(b"   "));
+}
+
+#[test]
+fn test_owned_chunker_consecutive() {
+    let metaspace = b"\xE2\x96\x81";
+    let text = b"word\xE2\x96\x81\xE2\x96\x81\xE2\x96\x81next".to_vec();
+
+    let mut chunker = OwnedChunker::new(text.clone())
+        .size(10)
+        .pattern(metaspace.to_vec())
+        .prefix()
+        .consecutive();
+
+    let mut chunks = Vec::new();
+    while let Some(c) = chunker.next_chunk() {
+        chunks.push(c);
+    }
+
+    assert_eq!(chunks[0], b"word");
+    assert!(chunks[1].starts_with(metaspace));
+
+    let total: usize = chunks.iter().map(|c| c.len()).sum();
+    assert_eq!(total, text.len());
+}
+
+#[test]
+fn test_owned_chunker_forward_fallback() {
+    let metaspace = b"\xE2\x96\x81";
+    let text = b"verylongword\xE2\x96\x81short".to_vec();
+
+    let mut chunker = OwnedChunker::new(text.clone())
+        .size(6)
+        .pattern(metaspace.to_vec())
+        .prefix()
+        .forward_fallback();
+
+    let mut chunks = Vec::new();
+    while let Some(c) = chunker.next_chunk() {
+        chunks.push(c);
+    }
+
+    assert_eq!(chunks[0], b"verylongword");
+    assert!(chunks[1].starts_with(metaspace));
 }

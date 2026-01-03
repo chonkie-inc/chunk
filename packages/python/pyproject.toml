@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "memchunk"
-version = "0.2.0"
+version = "0.3.0"
 description = "The fastest semantic text chunking library"
 readme = "README_PYPI.md"
 requires-python = ">=3.8"
