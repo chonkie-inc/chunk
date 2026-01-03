@@ -995,11 +995,7 @@ fn test_consecutive_pattern_basic() {
     let text = b"word\xE2\x96\x81\xE2\x96\x81\xE2\x96\x81next"; // word▁▁▁next
 
     // Without consecutive: may split in middle of ▁▁▁
-    let chunks_default: Vec<_> = chunk(text)
-        .pattern(metaspace)
-        .size(10)
-        .prefix()
-        .collect();
+    let chunks_default: Vec<_> = chunk(text).pattern(metaspace).size(10).prefix().collect();
 
     // With consecutive: splits at START of ▁▁▁
     let chunks_consecutive: Vec<_> = chunk(text)
@@ -1050,11 +1046,7 @@ fn test_forward_fallback_basic() {
     let text = b"verylongword\xE2\x96\x81short";
 
     // Without forward_fallback: hard split at target
-    let chunks_default: Vec<_> = chunk(text)
-        .pattern(metaspace)
-        .size(6)
-        .prefix()
-        .collect();
+    let chunks_default: Vec<_> = chunk(text).pattern(metaspace).size(6).prefix().collect();
 
     // With forward_fallback: finds ▁ past target
     let chunks_forward: Vec<_> = chunk(text)
