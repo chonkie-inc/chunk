@@ -31,12 +31,16 @@ impl Chunker {
     /// @param size - Target chunk size in bytes (default: 4096)
     /// @param delimiters - Delimiter characters as string (default: "\n.?")
     /// @param prefix - Put delimiter at start of next chunk (default: false)
+    /// @param consecutive - Split at START of consecutive runs (default: false)
+    /// @param forward_fallback - Search forward if no delimiter in backward window (default: false)
     #[wasm_bindgen(constructor)]
     pub fn new(
         text: &[u8],
         size: Option<usize>,
         delimiters: Option<String>,
         prefix: Option<bool>,
+        consecutive: Option<bool>,
+        forward_fallback: Option<bool>,
     ) -> Chunker {
         let target_size = size.unwrap_or(DEFAULT_TARGET_SIZE);
         let delims = delimiters
@@ -47,6 +51,12 @@ impl Chunker {
             .delimiters(delims);
         if prefix.unwrap_or(false) {
             inner = inner.prefix();
+        }
+        if consecutive.unwrap_or(false) {
+            inner = inner.consecutive();
+        }
+        if forward_fallback.unwrap_or(false) {
+            inner = inner.forward_fallback();
         }
         Chunker { inner }
     }
@@ -85,6 +95,7 @@ impl Chunker {
 
     /// Get the next chunk, or undefined if exhausted.
     #[wasm_bindgen]
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<Vec<u8>> {
         self.inner.next_chunk()
     }
@@ -137,6 +148,8 @@ pub fn chunk_offsets(
     size: Option<usize>,
     delimiters: Option<String>,
     prefix: Option<bool>,
+    consecutive: Option<bool>,
+    forward_fallback: Option<bool>,
 ) -> Vec<usize> {
     let target_size = size.unwrap_or(DEFAULT_TARGET_SIZE);
     let delims = delimiters
@@ -147,6 +160,12 @@ pub fn chunk_offsets(
         .delimiters(delims);
     if prefix.unwrap_or(false) {
         chunker = chunker.prefix();
+    }
+    if consecutive.unwrap_or(false) {
+        chunker = chunker.consecutive();
+    }
+    if forward_fallback.unwrap_or(false) {
+        chunker = chunker.forward_fallback();
     }
     chunker
         .collect_offsets()

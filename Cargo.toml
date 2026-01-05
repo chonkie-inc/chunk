@@ -3,7 +3,7 @@ members = [".", "packages/python", "packages/wasm"]
 
 [package]
 name = "memchunk"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 description = "The fastest semantic text chunking library — up to 1TB/s chunking throughput"
 license = "MIT OR Apache-2.0"

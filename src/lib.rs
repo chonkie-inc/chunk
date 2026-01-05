@@ -47,6 +47,152 @@ fn find_last_delimiter(
     }
 }
 
+/// Find first delimiter in window using SIMD-accelerated memchr (1-3 delimiters)
+/// or lookup table (4+ delimiters).
+#[inline]
+fn find_first_delimiter(
+    window: &[u8],
+    delimiters: &[u8],
+    table: Option<&[bool; 256]>,
+) -> Option<usize> {
+    if let Some(t) = table {
+        window.iter().position(|&b| t[b as usize])
+    } else {
+        match delimiters.len() {
+            1 => memchr::memchr(delimiters[0], window),
+            2 => memchr::memchr2(delimiters[0], delimiters[1], window),
+            3 => memchr::memchr3(delimiters[0], delimiters[1], delimiters[2], window),
+            0 => None,
+            _ => unreachable!(),
+        }
+    }
+}
+
+/// Find delimiter boundary that is the START of a consecutive run.
+///
+/// Searches backward from `target_end`, then forward if `forward_fallback` is true.
+/// When `consecutive` is true, returns position of a delimiter that is NOT preceded
+/// by the same delimiter byte.
+///
+/// Returns positions > start (never returns start itself, as that wouldn't make progress).
+fn find_delimiter_boundary(
+    text: &[u8],
+    delimiters: &[u8],
+    table: Option<&[bool; 256]>,
+    start: usize,
+    target_end: usize,
+    consecutive: bool,
+    forward_fallback: bool,
+) -> Option<usize> {
+    if delimiters.is_empty() || start >= text.len() {
+        return None;
+    }
+
+    let target_end = target_end.min(text.len());
+    let window = &text[start..target_end];
+
+    // Backward search
+    if consecutive {
+        // Find last delimiter that is START of consecutive run (same delimiter)
+        let mut search_end = window.len();
+        while search_end > 0 {
+            let rel_pos = find_last_delimiter(&window[..search_end], delimiters, table);
+
+            if let Some(rel_pos) = rel_pos {
+                let abs_pos = start + rel_pos;
+                let delim_byte = text[abs_pos];
+                // Check if this is START of consecutive run (not preceded by same delimiter)
+                if abs_pos == 0 || text[abs_pos - 1] != delim_byte {
+                    // Found valid boundary, but skip if it equals start (no progress)
+                    if abs_pos > start {
+                        return Some(abs_pos);
+                    }
+                    // We've traced back to start - chunk is full of consecutive delimiters
+                    // Fall through to forward fallback
+                    break;
+                }
+                // In middle of run, search earlier
+                search_end = rel_pos;
+            } else {
+                break;
+            }
+        }
+    } else {
+        // Simple case: just find last occurrence (but not at start position)
+        let rel_pos = find_last_delimiter(window, delimiters, table);
+        if let Some(rel_pos) = rel_pos {
+            let abs_pos = start + rel_pos;
+            if abs_pos > start {
+                return Some(abs_pos);
+            }
+        }
+    }
+
+    // Forward fallback search - find next boundary after target_end
+    if forward_fallback {
+        // First, determine where to start searching forward.
+        // If we're at the start of a consecutive run, skip past the entire run.
+        let mut forward_from = target_end;
+
+        if consecutive && start < text.len() {
+            // Check if start is at a delimiter
+            let is_delim_at_start = if let Some(t) = table {
+                t[text[start] as usize]
+            } else {
+                delimiters.contains(&text[start])
+            };
+
+            if is_delim_at_start {
+                // We're at a delimiter at `start`. Skip all consecutive same delimiters.
+                let delim_byte = text[start];
+                let mut pos = start;
+                while pos < text.len() && text[pos] == delim_byte {
+                    pos += 1;
+                }
+                // Start searching from end of consecutive run, but not before target_end
+                forward_from = forward_from.max(pos);
+            }
+        }
+
+        if forward_from < text.len() {
+            let forward_window = &text[forward_from..];
+
+            if consecutive {
+                // Find first delimiter that is START of consecutive run
+                let mut search_start = 0;
+                while search_start < forward_window.len() {
+                    let rel_pos =
+                        find_first_delimiter(&forward_window[search_start..], delimiters, table);
+
+                    if let Some(rel_pos) = rel_pos {
+                        let abs_pos = forward_from + search_start + rel_pos;
+                        let delim_byte = text[abs_pos];
+                        if abs_pos == 0 || text[abs_pos - 1] != delim_byte {
+                            return Some(abs_pos);
+                        }
+                        // In middle of run, search later
+                        search_start += rel_pos + 1;
+                    } else {
+                        break;
+                    }
+                }
+            } else {
+                let rel_pos = find_first_delimiter(forward_window, delimiters, table);
+                if let Some(rel_pos) = rel_pos {
+                    return Some(forward_from + rel_pos);
+                }
+            }
+        }
+
+        // No delimiter found forward. Return text.len() to include all remaining
+        // text in one chunk. This avoids O(n²) behavior from repeatedly searching
+        // forward through the entire remaining text on each iteration.
+        return Some(text.len());
+    }
+
+    None
+}
+
 /// Build lookup table for 4+ delimiters.
 #[inline]
 fn build_table(delimiters: &[u8]) -> Option<[bool; 256]> {
@@ -66,6 +212,7 @@ fn build_table(delimiters: &[u8]) -> Option<[bool; 256]> {
 /// Returns the position to split at, handling pattern mode vs delimiter mode,
 /// prefix vs suffix mode, and the special `text.len()` signal.
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn compute_split_at(
     text: &[u8],
     pos: usize,
@@ -96,15 +243,25 @@ fn compute_split_at(
         }
     } else {
         // Single-byte delimiters mode
-        let window = &text[pos..end];
-        match find_last_delimiter(window, delimiters, table) {
-            Some(rel_pos) => {
-                if prefix_mode {
-                    // In prefix mode, delimiter goes to next chunk (split before it)
-                    // If delimiter is at pos 0, this would create empty chunk - use hard split
-                    if rel_pos == 0 { end } else { pos + rel_pos }
+        match find_delimiter_boundary(
+            text,
+            delimiters,
+            table,
+            pos,
+            end,
+            consecutive,
+            forward_fallback,
+        ) {
+            Some(found_pos) => {
+                if found_pos == text.len() {
+                    // Special case: text.len() means "take all remaining"
+                    found_pos
+                } else if prefix_mode {
+                    // Split BEFORE delimiter (delimiter goes to next chunk)
+                    if found_pos == pos { end } else { found_pos }
                 } else {
-                    pos + rel_pos + 1 // Delimiter stays with current chunk
+                    // Split AFTER delimiter (delimiter stays with current chunk)
+                    found_pos + 1
                 }
             }
             None => end, // No delimiter found, hard split at target
@@ -367,19 +524,23 @@ impl<'a> Chunker<'a> {
         self
     }
 
-    /// Enable consecutive pattern handling.
+    /// Enable consecutive delimiter/pattern handling.
     ///
-    /// When splitting at a pattern, ensures we split at the START of a
-    /// consecutive run, not in the middle. For example, "word▁▁▁next"
-    /// splits as ["word"]["▁▁▁next"], not ["word▁▁"]["▁next"].
+    /// When splitting, ensures we split at the START of a consecutive run
+    /// of the same delimiter/pattern, not in the middle. For example:
+    /// - With pattern: "word▁▁▁next" splits as ["word"]["▁▁▁next"]
+    /// - With delimiter: "word\n\n\nnext" splits as ["word"]["\\n\\n\\nnext"]
     ///
     /// This is useful for patterns that can merge (like BPE tokenization)
-    /// or when consecutive delimiters have semantic meaning (like `\n\n`).
+    /// or when consecutive delimiters have semantic meaning (like `\n\n`
+    /// for paragraph breaks).
     ///
-    /// Only applies to multi-byte patterns set via `.pattern()`.
+    /// Works with both `.pattern()` and `.delimiters()`.
     ///
     /// ```
     /// use memchunk::chunk;
+    ///
+    /// // With pattern
     /// let text = b"word\xE2\x96\x81\xE2\x96\x81\xE2\x96\x81next"; // word▁▁▁next
     /// let metaspace = b"\xE2\x96\x81";
     /// let chunks: Vec<_> = chunk(text)
@@ -389,6 +550,17 @@ impl<'a> Chunker<'a> {
     ///     .consecutive()
     ///     .collect();
     /// assert_eq!(chunks[0], b"word");
+    ///
+    /// // With delimiters
+    /// let text = b"Hello\n\n\nWorld";
+    /// let chunks: Vec<_> = chunk(text)
+    ///     .delimiters(b"\n")
+    ///     .size(8)
+    ///     .prefix()
+    ///     .consecutive()
+    ///     .collect();
+    /// assert_eq!(chunks[0], b"Hello");
+    /// assert_eq!(chunks[1], b"\n\n\nWorld");
     /// ```
     pub fn consecutive(mut self) -> Self {
         self.consecutive = true;
@@ -397,16 +569,18 @@ impl<'a> Chunker<'a> {
 
     /// Enable forward fallback search.
     ///
-    /// When no pattern is found in the backward search window, search
-    /// forward from target_end instead of doing a hard split.
+    /// When no delimiter/pattern is found in the backward search window,
+    /// search forward from target_end instead of doing a hard split.
     ///
     /// This ensures splits always occur at semantic boundaries when possible,
     /// even if the nearest boundary is past the target size.
     ///
-    /// Only applies to multi-byte patterns set via `.pattern()`.
+    /// Works with both `.pattern()` and `.delimiters()`.
     ///
     /// ```
     /// use memchunk::chunk;
+    ///
+    /// // With pattern
     /// let text = b"verylongword\xE2\x96\x81short"; // verylongword▁short
     /// let metaspace = b"\xE2\x96\x81";
     /// let chunks: Vec<_> = chunk(text)
@@ -418,6 +592,17 @@ impl<'a> Chunker<'a> {
     /// // Without forward_fallback: hard split at position 6
     /// // With forward_fallback: finds ▁ at position 12
     /// assert_eq!(chunks[0], b"verylongword");
+    ///
+    /// // With delimiters
+    /// let text = b"verylongword next";
+    /// let chunks: Vec<_> = chunk(text)
+    ///     .delimiters(b" ")
+    ///     .size(6)
+    ///     .prefix()
+    ///     .forward_fallback()
+    ///     .collect();
+    /// assert_eq!(chunks[0], b"verylongword");
+    /// assert_eq!(chunks[1], b" next");
     /// ```
     pub fn forward_fallback(mut self) -> Self {
         self.forward_fallback = true;
@@ -558,10 +743,11 @@ impl OwnedChunker {
         self
     }
 
-    /// Enable consecutive pattern handling.
+    /// Enable consecutive delimiter/pattern handling.
     ///
-    /// When splitting at a pattern, ensures we split at the START of a
-    /// consecutive run, not in the middle.
+    /// When splitting, ensures we split at the START of a consecutive run
+    /// of the same delimiter/pattern, not in the middle.
+    /// Works with both `.pattern()` and `.delimiters()`.
     pub fn consecutive(mut self) -> Self {
         self.consecutive = true;
         self
@@ -569,8 +755,9 @@ impl OwnedChunker {
 
     /// Enable forward fallback search.
     ///
-    /// When no pattern is found in the backward search window, search
-    /// forward from target_end instead of doing a hard split.
+    /// When no delimiter/pattern is found in the backward search window,
+    /// search forward from target_end instead of doing a hard split.
+    /// Works with both `.pattern()` and `.delimiters()`.
     pub fn forward_fallback(mut self) -> Self {
         self.forward_fallback = true;
         self
@@ -1158,4 +1345,173 @@ fn test_owned_chunker_forward_fallback() {
 
     assert_eq!(chunks[0], b"verylongword");
     assert!(chunks[1].starts_with(metaspace));
+}
+
+// ============ Delimiter Consecutive and Forward Fallback Tests ============
+
+#[test]
+fn test_delimiter_consecutive_basic() {
+    // Hello\n\n\nWorld - should split at START of \n\n\n, not in the middle
+    let text = b"Hello\n\n\nWorld";
+
+    // With consecutive: splits at START of \n\n\n
+    let chunks: Vec<_> = chunk(text)
+        .delimiters(b"\n")
+        .size(8)
+        .prefix()
+        .consecutive()
+        .collect();
+
+    // Should preserve all bytes
+    let total: usize = chunks.iter().map(|c| c.len()).sum();
+    assert_eq!(total, text.len());
+
+    // Consecutive mode should split at "Hello" | "\n\n\nWorld"
+    assert_eq!(chunks[0], b"Hello");
+    assert!(chunks[1].starts_with(b"\n"));
+    assert_eq!(chunks[1], b"\n\n\nWorld");
+}
+
+#[test]
+fn test_delimiter_consecutive_suffix_mode() {
+    // Test consecutive in suffix mode
+    let text = b"Hello\n\n\nWorld";
+
+    let chunks: Vec<_> = chunk(text)
+        .delimiters(b"\n")
+        .size(8)
+        .suffix()
+        .consecutive()
+        .collect();
+
+    // Should preserve all bytes
+    let total: usize = chunks.iter().map(|c| c.len()).sum();
+    assert_eq!(total, text.len());
+
+    // In suffix mode, first newline goes with "Hello"
+    assert_eq!(chunks[0], b"Hello\n");
+    assert_eq!(chunks[1], b"\n\nWorld");
+}
+
+#[test]
+fn test_delimiter_forward_fallback_basic() {
+    // verylongword next - delimiter is past target_size
+    let text = b"verylongword next";
+
+    // Without forward_fallback: hard split at target
+    let chunks_default: Vec<_> = chunk(text).delimiters(b" ").size(6).prefix().collect();
+
+    // With forward_fallback: finds space past target
+    let chunks_forward: Vec<_> = chunk(text)
+        .delimiters(b" ")
+        .size(6)
+        .prefix()
+        .forward_fallback()
+        .collect();
+
+    // Default should hard-split at position 6
+    assert_eq!(chunks_default[0], b"verylo");
+
+    // Forward fallback should find space at position 12
+    assert_eq!(chunks_forward[0], b"verylongword");
+    assert_eq!(chunks_forward[1], b" next");
+}
+
+#[test]
+fn test_delimiter_consecutive_and_forward_fallback_combined() {
+    // longword\n\n\nshort - delimiter is past target and consecutive
+    let text = b"longword\n\n\nshort";
+
+    let chunks: Vec<_> = chunk(text)
+        .delimiters(b"\n")
+        .size(6)
+        .prefix()
+        .consecutive()
+        .forward_fallback()
+        .collect();
+
+    // Should find START of \n\n\n via forward search
+    assert_eq!(chunks[0], b"longword");
+    assert!(chunks[1].starts_with(b"\n\n\n"));
+    assert_eq!(chunks[1], b"\n\n\nshort");
+}
+
+#[test]
+fn test_delimiter_forward_fallback_no_delimiter_anywhere() {
+    // No delimiter in text at all - forward search finds nothing, returns all remaining
+    let text = b"abcdefghijklmnop";
+
+    let chunks: Vec<_> = chunk(text)
+        .delimiters(b".")
+        .size(5)
+        .forward_fallback()
+        .collect();
+
+    // First chunk hard splits (backward found nothing), forward finds nothing → take all
+    assert_eq!(chunks.len(), 1);
+    assert_eq!(chunks[0], text.as_slice());
+}
+
+#[test]
+fn test_delimiter_consecutive_multiple_delimiters() {
+    // Test with multiple delimiter types - consecutive only applies to same delimiter
+    let text = b"Hello.\n\nWorld";
+
+    let chunks: Vec<_> = chunk(text)
+        .delimiters(b".\n")
+        .size(10)
+        .prefix()
+        .consecutive()
+        .collect();
+
+    // Should preserve all bytes
+    let total: usize = chunks.iter().map(|c| c.len()).sum();
+    assert_eq!(total, text.len());
+
+    // Backward search finds: \n at 7 (preceded by \n, skip), \n at 6 (preceded by ., valid!)
+    // So we split at position 6, keeping the period with "Hello"
+    // The \n\n run stays together in the second chunk
+    assert_eq!(chunks[0], b"Hello.");
+    assert_eq!(chunks[1], b"\n\nWorld");
+}
+
+#[test]
+fn test_owned_chunker_delimiter_consecutive() {
+    let text = b"Hello\n\n\nWorld".to_vec();
+
+    let mut chunker = OwnedChunker::new(text.clone())
+        .size(8)
+        .delimiters(b"\n".to_vec())
+        .prefix()
+        .consecutive();
+
+    let mut chunks = Vec::new();
+    while let Some(c) = chunker.next_chunk() {
+        chunks.push(c);
+    }
+
+    assert_eq!(chunks[0], b"Hello");
+    assert_eq!(chunks[1], b"\n\n\nWorld");
+
+    let total: usize = chunks.iter().map(|c| c.len()).sum();
+    assert_eq!(total, text.len());
+}
+
+#[test]
+fn test_owned_chunker_delimiter_forward_fallback() {
+    let text = b"verylongword next".to_vec();
+
+    let mut chunker = OwnedChunker::new(text.clone())
+        .size(6)
+        .delimiters(b" ".to_vec())
+        .prefix()
+        .forward_fallback();
+
+    let mut chunks = Vec::new();
+    while let Some(c) = chunker.next_chunk() {
+        chunks.push(c);
+    }
+
+    assert_eq!(chunks[0], b"verylongword");
+    assert_eq!(chunks[1], b" next");
 }
