@@ -15,7 +15,7 @@ import { initSync } from '../pkg/chonkiejs_chunk.js';
 initSync({ module: wasmBuffer });
 
 // Now import our wrapper
-import { chunk, chunk_offsets, Chunker, default_target_size, default_delimiters } from '../index.js';
+import { chunk, chunk_offsets, split, split_offsets, Chunker, default_target_size, default_delimiters } from '../index.js';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -119,4 +119,79 @@ test('wrapper: chunk function with for...of', () => {
         results.push(decoder.decode(slice));
     }
     assert.deepStrictEqual(results, ["Hello.", " World.", " Test."]);
+});
+
+// Split tests
+test('wrapper: split function basic', () => {
+    const text = encoder.encode("Hello. World. Test.");
+    const segments = [...split(text, { delimiters: "." })];
+    assert.strictEqual(segments.length, 3);
+    assert.strictEqual(decoder.decode(segments[0]), "Hello.");
+    assert.strictEqual(decoder.decode(segments[1]), " World.");
+    assert.strictEqual(decoder.decode(segments[2]), " Test.");
+});
+
+test('wrapper: split function with string input', () => {
+    const segments = [...split("Hello. World. Test.", { delimiters: "." })];
+    assert.strictEqual(segments.length, 3);
+    assert.strictEqual(segments[0], "Hello.");
+    assert.strictEqual(segments[1], " World.");
+    assert.strictEqual(segments[2], " Test.");
+});
+
+test('wrapper: split function with includeDelim=next', () => {
+    const segments = [...split("Hello. World. Test.", { delimiters: ".", includeDelim: "next" })];
+    assert.strictEqual(segments.length, 4);
+    assert.strictEqual(segments[0], "Hello");
+    assert.strictEqual(segments[1], ". World");
+    assert.strictEqual(segments[2], ". Test");
+    assert.strictEqual(segments[3], ".");
+});
+
+test('wrapper: split function with includeDelim=none', () => {
+    const segments = [...split("Hello. World. Test.", { delimiters: ".", includeDelim: "none" })];
+    assert.strictEqual(segments.length, 3);
+    assert.strictEqual(segments[0], "Hello");
+    assert.strictEqual(segments[1], " World");
+    assert.strictEqual(segments[2], " Test");
+});
+
+test('wrapper: split_offsets function', () => {
+    const text = encoder.encode("Hello. World. Test.");
+    const offsets = split_offsets(text, { delimiters: "." });
+    assert.strictEqual(offsets.length, 3);
+    assert.deepStrictEqual(offsets[0], [0, 6]);
+    assert.deepStrictEqual(offsets[1], [6, 13]);
+    assert.deepStrictEqual(offsets[2], [13, 19]);
+
+    // Verify slicing works
+    const segments = offsets.map(([start, end]) => decoder.decode(text.subarray(start, end)));
+    assert.strictEqual(segments[0], "Hello.");
+    assert.strictEqual(segments[1], " World.");
+    assert.strictEqual(segments[2], " Test.");
+});
+
+test('wrapper: split_offsets with minChars', () => {
+    const text = "A. B. C. D. E.";
+    // Without minChars, we get 5 segments
+    const offsets1 = split_offsets(text, { delimiters: "." });
+    assert.strictEqual(offsets1.length, 5);
+
+    // With minChars=4, short segments get merged
+    const offsets2 = split_offsets(text, { delimiters: ".", minChars: 4 });
+    assert.ok(offsets2.length < 5);
+});
+
+test('wrapper: split preserves all bytes', () => {
+    const text = encoder.encode("The quick brown fox. Jumps over? The lazy dog!");
+    const offsets = split_offsets(text, { delimiters: ".?!" });
+
+    // Verify all bytes are accounted for
+    const total = offsets.reduce((sum, [start, end]) => sum + (end - start), 0);
+    assert.strictEqual(total, text.length);
+
+    // Verify offsets are contiguous
+    for (let i = 1; i < offsets.length; i++) {
+        assert.strictEqual(offsets[i - 1][1], offsets[i][0]);
+    }
 });

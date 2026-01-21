@@ -26,6 +26,7 @@ import initWasm, {
     default_delimiters,
     chunk_offsets as wasmChunkOffsets,
     chunk_offsets_pattern as wasmChunkOffsetsPattern,
+    split_offsets as wasmSplitOffsets,
 } from './pkg/chonkiejs_chunk.js';
 
 export { default_target_size, default_delimiters };
@@ -112,6 +113,66 @@ export function chunk_offsets(text, options = {}) {
     } else {
         flat = wasmChunkOffsets(bytes, size, delimiters, prefix);
     }
+
+    const pairs = [];
+    for (let i = 0; i < flat.length; i += 2) {
+        pairs.push([flat[i], flat[i + 1]]);
+    }
+    return pairs;
+}
+
+/**
+ * Split text at every delimiter occurrence.
+ * Unlike chunk() which creates size-based chunks, this splits at
+ * **every** delimiter occurrence.
+ *
+ * @param {string | Uint8Array} text - The text to split
+ * @param {Object} [options] - Options
+ * @param {string} [options.delimiters="\n.?"] - Delimiter characters
+ * @param {string} [options.includeDelim="prev"] - Where to attach delimiter: "prev", "next", or "none"
+ * @param {number} [options.minChars=0] - Minimum characters per segment. Shorter segments are merged.
+ * @yields {string | Uint8Array} Segments (same type as input)
+ *
+ * @example
+ * // String input returns strings
+ * for (const segment of split("Hello. World. Test.", { delimiters: "." })) {
+ *     console.log(segment); // "Hello.", " World.", " Test."
+ * }
+ */
+export function* split(text, options = {}) {
+    const isString = typeof text === 'string';
+    const bytes = toBytes(text);
+    const { delimiters, includeDelim, minChars } = options;
+
+    const flat = wasmSplitOffsets(bytes, delimiters, includeDelim, minChars);
+
+    for (let i = 0; i < flat.length; i += 2) {
+        const slice = bytes.subarray(flat[i], flat[i + 1]);
+        yield isString ? decoder.decode(slice) : slice;
+    }
+}
+
+/**
+ * Get split offsets without creating views.
+ * Unlike chunk_offsets() which creates size-based chunks, this splits at
+ * **every** delimiter occurrence.
+ *
+ * @param {string | Uint8Array} text - The text to split
+ * @param {Object} [options] - Options
+ * @param {string} [options.delimiters="\n.?"] - Delimiter characters
+ * @param {string} [options.includeDelim="prev"] - Where to attach delimiter: "prev", "next", or "none"
+ * @param {number} [options.minChars=0] - Minimum characters per segment. Shorter segments are merged.
+ * @returns {Array<[number, number]>} Array of [start, end] byte offset pairs
+ *
+ * @example
+ * const offsets = split_offsets("Hello. World.", { delimiters: "." });
+ * // [[0, 6], [6, 13]]
+ */
+export function split_offsets(text, options = {}) {
+    const bytes = toBytes(text);
+    const { delimiters, includeDelim, minChars } = options;
+
+    const flat = wasmSplitOffsets(bytes, delimiters, includeDelim, minChars);
 
     const pairs = [];
     for (let i = 0; i < flat.length; i += 2) {

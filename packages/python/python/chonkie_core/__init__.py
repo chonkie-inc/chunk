@@ -3,11 +3,19 @@
 from chonkie_core._chunk import (
     Chunker,
     chunk_offsets,
+    split_offsets,
     DEFAULT_TARGET_SIZE,
     DEFAULT_DELIMITERS,
 )
 
-__all__ = ["chunk", "Chunker", "chunk_offsets", "DEFAULT_TARGET_SIZE", "DEFAULT_DELIMITERS"]
+__all__ = [
+    "chunk",
+    "Chunker",
+    "chunk_offsets",
+    "split_offsets",
+    "DEFAULT_TARGET_SIZE",
+    "DEFAULT_DELIMITERS",
+]
 __version__ = "0.5.0"
 
 

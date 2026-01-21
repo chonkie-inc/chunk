@@ -1,4 +1,4 @@
-use chunk::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, OwnedChunker};
+use chunk::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, IncludeDelim, OwnedChunker, split_at_delimiters};
 use wasm_bindgen::prelude::*;
 
 /// Chunker splits text at delimiter boundaries.
@@ -206,6 +206,51 @@ pub fn chunk_offsets_pattern(
     }
     chunker
         .collect_offsets()
+        .into_iter()
+        .flat_map(|(start, end)| [start, end])
+        .collect()
+}
+
+/// Split text at every delimiter occurrence, returning offsets.
+/// Unlike chunk_offsets which creates size-based chunks, this splits at
+/// **every** delimiter occurrence.
+///
+/// Returns a flat array [start1, end1, start2, end2, ...].
+///
+/// @param text - The text to split (as Uint8Array)
+/// @param delimiters - Delimiter characters as string (default: "\n.?")
+/// @param include_delim - Where to attach delimiter: "prev" (default), "next", or "none"
+/// @param min_chars - Minimum characters per segment (default: 0). Shorter segments are merged.
+///
+/// @example
+/// ```javascript
+/// const offsets = split_offsets(textBytes, ".", "prev", 0);
+/// const segments = [];
+/// for (let i = 0; i < offsets.length; i += 2) {
+///     segments.push(textBytes.subarray(offsets[i], offsets[i + 1]));
+/// }
+/// // ["Hello.", " World.", " Test."]
+/// ```
+#[wasm_bindgen]
+pub fn split_offsets(
+    text: &[u8],
+    delimiters: Option<String>,
+    include_delim: Option<String>,
+    min_chars: Option<usize>,
+) -> Vec<usize> {
+    let delims = delimiters
+        .map(|s| s.into_bytes())
+        .unwrap_or_else(|| DEFAULT_DELIMITERS.to_vec());
+
+    let include = match include_delim.as_deref() {
+        Some("next") => IncludeDelim::Next,
+        Some("none") => IncludeDelim::None,
+        _ => IncludeDelim::Prev, // default
+    };
+
+    let min = min_chars.unwrap_or(0);
+
+    split_at_delimiters(text, &delims, include, min)
         .into_iter()
         .flat_map(|(start, end)| [start, end])
         .collect()

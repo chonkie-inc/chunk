@@ -1,4 +1,4 @@
-use chunk::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, OwnedChunker};
+use chunk::{split_at_delimiters, IncludeDelim, OwnedChunker, DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
 
@@ -160,10 +160,65 @@ fn chunk_offsets(
     Ok(chunker.collect_offsets())
 }
 
+/// Split text at every delimiter occurrence, returning offsets.
+///
+/// This is the Rust equivalent of Cython's `split_text` function.
+/// Unlike chunk_offsets() which creates size-based chunks, this splits at
+/// **every** delimiter occurrence.
+///
+/// Args:
+///     text: bytes or str to split
+///     delimiters: bytes or str of delimiter characters (default: "\\n.?")
+///     include_delim: Where to attach delimiter - "prev" (default), "next", or "none"
+///     min_chars: Minimum characters per segment (default: 0). Shorter segments are merged.
+///
+/// Returns:
+///     List of (start, end) byte offsets for each segment.
+///
+/// Example:
+///     >>> text = b"Hello. World. Test."
+///     >>> offsets = split_offsets(text, delimiters=b".")
+///     >>> segments = [text[start:end] for start, end in offsets]
+///     >>> # ["Hello.", " World.", " Test."]
+///
+/// Example with include_delim="next":
+///     >>> offsets = split_offsets(text, delimiters=b".", include_delim="next")
+///     >>> segments = [text[start:end] for start, end in offsets]
+///     >>> # ["Hello", ". World", ". Test", "."]
+#[pyfunction]
+#[pyo3(signature = (text, delimiters=None, include_delim="prev", min_chars=0))]
+fn split_offsets(
+    text: &Bound<'_, PyAny>,
+    delimiters: Option<&Bound<'_, PyAny>>,
+    include_delim: &str,
+    min_chars: usize,
+) -> PyResult<Vec<(usize, usize)>> {
+    let text_bytes = extract_bytes(text)?;
+
+    let delims = match delimiters {
+        Some(d) => extract_bytes(d)?,
+        None => DEFAULT_DELIMITERS.to_vec(),
+    };
+
+    let include = match include_delim {
+        "prev" => IncludeDelim::Prev,
+        "next" => IncludeDelim::Next,
+        "none" => IncludeDelim::None,
+        _ => {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "include_delim must be 'prev', 'next', or 'none'",
+            ))
+        }
+    };
+
+    Ok(split_at_delimiters(&text_bytes, &delims, include, min_chars))
+}
+
 #[pymodule]
 fn _chunk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Chunker>()?;
     m.add_function(wrap_pyfunction!(chunk_offsets, m)?)?;
+    m.add_function(wrap_pyfunction!(split_offsets, m)?)?;
     m.add("DEFAULT_TARGET_SIZE", DEFAULT_TARGET_SIZE)?;
     m.add("DEFAULT_DELIMITERS", DEFAULT_DELIMITERS)?;
     Ok(())
