@@ -155,7 +155,9 @@ pub fn split_at_delimiters(
     }
 
     // Handle trailing content after last delimiter
-    if segment_start < text.len() && (splits.is_empty() || splits.last().map_or(true, |&(_, e)| e < text.len())) {
+    if segment_start < text.len()
+        && (splits.is_empty() || splits.last().map_or(true, |&(_, e)| e < text.len()))
+    {
         // Only emit if not already handled by the None branch
         if min_chars == 0 || accum_end < text.len() {
             emit_segment!(segment_start, text.len());

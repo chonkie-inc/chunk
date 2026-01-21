@@ -1,4 +1,6 @@
-use chunk::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, IncludeDelim, OwnedChunker, split_at_delimiters};
+use chunk::{
+    DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, IncludeDelim, OwnedChunker, split_at_delimiters,
+};
 use wasm_bindgen::prelude::*;
 
 /// Chunker splits text at delimiter boundaries.

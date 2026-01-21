@@ -1,4 +1,6 @@
-use chunk::{split_at_delimiters, IncludeDelim, OwnedChunker, DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE};
+use chunk::{
+    DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, IncludeDelim, OwnedChunker, split_at_delimiters,
+};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
 
@@ -207,11 +209,16 @@ fn split_offsets(
         _ => {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "include_delim must be 'prev', 'next', or 'none'",
-            ))
+            ));
         }
     };
 
-    Ok(split_at_delimiters(&text_bytes, &delims, include, min_chars))
+    Ok(split_at_delimiters(
+        &text_bytes,
+        &delims,
+        include,
+        min_chars,
+    ))
 }
 
 #[pymodule]

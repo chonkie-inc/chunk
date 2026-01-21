@@ -71,7 +71,9 @@ pub use crate::chunk::{Chunker, OwnedChunker, chunk};
 pub use crate::split::{IncludeDelim, Splitter, split, split_at_delimiters};
 
 // Re-export from merge module
-pub use crate::merge::{MergeResult, compute_merged_token_counts, find_merge_indices, merge_splits};
+pub use crate::merge::{
+    MergeResult, compute_merged_token_counts, find_merge_indices, merge_splits,
+};
 
 // Re-export constants from delim module
 pub use crate::delim::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE};
