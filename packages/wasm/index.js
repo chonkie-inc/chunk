@@ -27,6 +27,7 @@ import initWasm, {
     chunk_offsets as wasmChunkOffsets,
     chunk_offsets_pattern as wasmChunkOffsetsPattern,
     split_offsets as wasmSplitOffsets,
+    merge_splits as wasmMergeSplits,
 } from './pkg/chonkiejs_chunk.js';
 
 export { default_target_size, default_delimiters };
@@ -179,6 +180,40 @@ export function split_offsets(text, options = {}) {
         pairs.push([flat[i], flat[i + 1]]);
     }
     return pairs;
+}
+
+/**
+ * Merge segments based on token counts, respecting chunk size limits.
+ *
+ * This is the equivalent of Chonkie's Cython `_merge_splits` function.
+ * Used by RecursiveChunker to merge small segments into larger chunks
+ * that fit within a token budget.
+ *
+ * @param {number[] | Uint32Array} tokenCounts - Array of token counts for each segment
+ * @param {number} chunkSize - Maximum tokens per merged chunk
+ * @param {boolean} [combineWhitespace=false] - If true, adds +1 token per join for whitespace
+ * @returns {{indices: number[], tokenCounts: number[]}} Object with indices and token counts
+ *
+ * @example
+ * const result = merge_splits([1, 1, 1, 1, 1, 1, 1], 3);
+ * // result.indices = [3, 6, 7]
+ * // result.tokenCounts = [3, 3, 1]
+ *
+ * @example
+ * // With whitespace tokens
+ * const result = merge_splits([1, 1, 1, 1, 1, 1, 1], 5, true);
+ * // result.indices = [3, 6, 7]
+ * // result.tokenCounts = [5, 5, 1] (3 tokens + 2 whitespace joins per chunk)
+ */
+export function merge_splits(tokenCounts, chunkSize, combineWhitespace = false) {
+    const flat = wasmMergeSplits(tokenCounts, chunkSize, combineWhitespace);
+    const indices = [];
+    const counts = [];
+    for (let i = 0; i < flat.length; i += 2) {
+        indices.push(flat[i]);
+        counts.push(flat[i + 1]);
+    }
+    return { indices, tokenCounts: counts };
 }
 
 let initialized = false;
