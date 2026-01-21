@@ -28,6 +28,7 @@ import initWasm, {
     chunk_offsets_pattern as wasmChunkOffsetsPattern,
     split_offsets as wasmSplitOffsets,
     merge_splits as wasmMergeSplits,
+    initSync as initWasmSync,
 } from './pkg/chonkiejs_chunk.js';
 
 export { default_target_size, default_delimiters };
@@ -220,10 +221,30 @@ let initialized = false;
 
 /**
  * Initialize the WASM module. Must be called before using chunk functions.
+ * Automatically detects Node.js vs browser environment.
  */
 export async function init() {
     if (!initialized) {
-        await initWasm();
+        // Check if we're in Node.js
+        const isNode = typeof process !== 'undefined' &&
+                       process.versions != null &&
+                       process.versions.node != null;
+
+        if (isNode) {
+            // Node.js: read the wasm file and use initSync
+            const { readFileSync } = await import('node:fs');
+            const { fileURLToPath } = await import('node:url');
+            const { dirname, join } = await import('node:path');
+
+            const __filename = fileURLToPath(import.meta.url);
+            const __dirname = dirname(__filename);
+            const wasmPath = join(__dirname, 'pkg', 'chonkiejs_chunk_bg.wasm');
+            const wasmBytes = readFileSync(wasmPath);
+            initWasmSync({ module: wasmBytes });
+        } else {
+            // Browser: use fetch-based init
+            await initWasm();
+        }
         initialized = true;
     }
 }
