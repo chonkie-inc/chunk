@@ -109,6 +109,8 @@ jobs:
         run: |
           cd packages/wasm
           wasm-pack build --target web
+          # Remove .gitignore from pkg/ so npm includes WASM files
+          rm -f pkg/.gitignore
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
