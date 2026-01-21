@@ -29,7 +29,7 @@ FLEXOKI = {
 
 # Benchmark data - throughput in GB/s (4KB chunks, enwik8 100MB)
 # Real measured values from quick_comparison.rs and python_comparison.py
-chunkers = ['memchunk', 'kiru', 'langchain', 'semchunk', 'llama-index', 'text-splitter']
+chunkers = ['chunk', 'kiru', 'langchain', 'semchunk', 'llama-index', 'text-splitter']
 speeds = [164, 4.5, 0.35, 0.013, 0.0035, 0.0017]  # GB/s
 
 # Sort by speed (fastest first)

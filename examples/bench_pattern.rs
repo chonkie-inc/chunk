@@ -1,6 +1,6 @@
 //! Benchmark pattern vs delimiter throughput
 
-use memchunk::chunk;
+use chunk::chunk;
 use std::time::Instant;
 
 fn main() {
