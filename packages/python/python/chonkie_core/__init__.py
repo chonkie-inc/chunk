@@ -36,7 +36,7 @@ __all__ = [
     "DEFAULT_TARGET_SIZE",
     "DEFAULT_DELIMITERS",
 ]
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 
 def chunk(text, *, size=DEFAULT_TARGET_SIZE, delimiters=None):

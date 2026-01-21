@@ -280,3 +280,80 @@ pub fn split_offsets(
 pub fn find_merge_indices(token_counts: &[usize], chunk_size: usize) -> Vec<usize> {
     rust_find_merge_indices(token_counts, chunk_size)
 }
+
+/// Merge segments based on token counts, respecting chunk size limits.
+/// Returns a flat array [endIndex1, tokenCount1, endIndex2, tokenCount2, ...].
+///
+/// This is the equivalent of Chonkie's `_merge_splits` function.
+/// Used by RecursiveChunker to merge small segments into larger chunks
+/// that fit within a token budget.
+///
+/// @param token_counts - Array of token counts for each segment
+/// @param chunk_size - Maximum tokens per merged chunk
+/// @param combine_whitespace - If true, adds +1 token per join for whitespace
+/// @returns Flat array of [endIndex, tokenCount] pairs
+///
+/// @example
+/// ```javascript
+/// const result = merge_splits([1, 1, 1, 1, 1, 1, 1], 3, false);
+/// // result = [3, 3, 6, 3, 7, 1]
+/// // Meaning: chunk 0-3 has 3 tokens, chunk 3-6 has 3 tokens, chunk 6-7 has 1 token
+/// ```
+#[wasm_bindgen]
+pub fn merge_splits(
+    token_counts: &[usize],
+    chunk_size: usize,
+    combine_whitespace: Option<bool>,
+) -> Vec<usize> {
+    if token_counts.is_empty() {
+        return vec![];
+    }
+
+    let combine_ws = combine_whitespace.unwrap_or(false);
+
+    // Build cumulative token counts
+    let mut cumulative: Vec<usize> = vec![0];
+    let mut sum = 0usize;
+    for &count in token_counts {
+        sum += count + if combine_ws { 1 } else { 0 };
+        cumulative.push(sum);
+    }
+
+    // Find merge boundaries
+    let mut result = Vec::new();
+    let mut current_index = 0;
+
+    while current_index < token_counts.len() {
+        let current_token_count = cumulative[current_index];
+        let required_token_count = current_token_count + chunk_size;
+
+        // Binary search for the insertion point
+        let mut lo = current_index;
+        let mut hi = cumulative.len();
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            if cumulative[mid] < required_token_count {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+
+        let mut index = lo.saturating_sub(1);
+        index = index.min(token_counts.len());
+
+        if index == current_index {
+            index += 1;
+        }
+
+        // Calculate token count for this chunk
+        let chunk_tokens = cumulative[index.min(token_counts.len())] - current_token_count;
+
+        result.push(index);
+        result.push(chunk_tokens);
+
+        current_index = index;
+    }
+
+    result
+}

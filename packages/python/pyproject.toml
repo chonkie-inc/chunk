@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "chonkie-core"
-version = "0.9.1"
+version = "0.9.2"
 description = "The fastest semantic text chunking library"
 readme = "README_PYPI.md"
 requires-python = ">=3.8"
