@@ -1,5 +1,5 @@
 [package]
-name = "memchunk-wasm"
+name = "chonkiejs-chunk"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
@@ -10,5 +10,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 wasm-bindgen = "0.2.106"
-memchunk = { path = "../.." }
+chunk = { path = "../.." }
 js-sys = "0.3"

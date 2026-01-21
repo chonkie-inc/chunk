@@ -7,11 +7,11 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Load WASM module
-const wasmPath = join(__dirname, '..', 'pkg', 'memchunk_wasm_bg.wasm');
+const wasmPath = join(__dirname, '..', 'pkg', 'chonkiejs_chunk_bg.wasm');
 const wasmBuffer = await readFile(wasmPath);
 
 // Import the generated WASM module
-const { Chunker, default_target_size, default_delimiters, initSync } = await import('../pkg/memchunk_wasm.js');
+const { Chunker, default_target_size, default_delimiters, initSync } = await import('../pkg/chonkiejs_chunk.js');
 initSync(wasmBuffer);
 
 const encoder = new TextEncoder();

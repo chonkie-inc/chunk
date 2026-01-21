@@ -1,4 +1,4 @@
-use memchunk::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, OwnedChunker};
+use chunk::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, OwnedChunker};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
 
@@ -19,7 +19,7 @@ fn extract_bytes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
 /// Chunker splits text at delimiter boundaries.
 ///
 /// Example with single-byte delimiters:
-///     >>> from memchunk import Chunker
+///     >>> from chonkie_core import Chunker
 ///     >>> text = b"Hello. World. Test."
 ///     >>> for chunk in Chunker(text, size=10, delimiters=b"."):
 ///     ...     print(chunk)
@@ -161,7 +161,7 @@ fn chunk_offsets(
 }
 
 #[pymodule]
-fn _memchunk(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _chunk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Chunker>()?;
     m.add_function(wrap_pyfunction!(chunk_offsets, m)?)?;
     m.add("DEFAULT_TARGET_SIZE", DEFAULT_TARGET_SIZE)?;

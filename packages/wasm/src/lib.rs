@@ -1,4 +1,4 @@
-use memchunk::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, OwnedChunker};
+use chunk::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, OwnedChunker};
 use wasm_bindgen::prelude::*;
 
 /// Chunker splits text at delimiter boundaries.

@@ -1,5 +1,5 @@
 import pytest
-from memchunk import Chunker, DEFAULT_TARGET_SIZE, DEFAULT_DELIMITERS
+from chonkie_core import Chunker, DEFAULT_TARGET_SIZE, DEFAULT_DELIMITERS
 
 
 class TestChunker:

@@ -3,7 +3,7 @@
 //! # Example
 //!
 //! ```
-//! use memchunk::chunk;
+//! use chunk::chunk;
 //!
 //! let text = b"Hello world. How are you? I'm fine.\nThanks for asking.";
 //!
@@ -408,7 +408,7 @@ fn find_pattern_boundary(
 /// # Example
 ///
 /// ```
-/// use memchunk::chunk;
+/// use chunk::chunk;
 ///
 /// let text = b"First sentence. Second sentence. Third sentence.";
 ///
@@ -484,7 +484,7 @@ impl<'a> Chunker<'a> {
     /// Mutually exclusive with `delimiters()` - last one set wins.
     ///
     /// ```
-    /// use memchunk::chunk;
+    /// use chunk::chunk;
     /// let metaspace = "▁".as_bytes(); // [0xE2, 0x96, 0x81]
     /// let chunks: Vec<_> = chunk(b"Hello\xE2\x96\x81World\xE2\x96\x81Test")
     ///     .size(15)
@@ -503,7 +503,7 @@ impl<'a> Chunker<'a> {
     /// Put delimiter at the start of the next chunk (prefix mode).
     ///
     /// ```
-    /// use memchunk::chunk;
+    /// use chunk::chunk;
     /// let chunks: Vec<_> = chunk(b"Hello World").size(8).delimiters(b" ").prefix().collect();
     /// assert_eq!(chunks, vec![b"Hello".as_slice(), b" World".as_slice()]);
     /// ```
@@ -515,7 +515,7 @@ impl<'a> Chunker<'a> {
     /// Put delimiter at the end of the current chunk (suffix mode, default).
     ///
     /// ```
-    /// use memchunk::chunk;
+    /// use chunk::chunk;
     /// let chunks: Vec<_> = chunk(b"Hello World").size(8).delimiters(b" ").suffix().collect();
     /// assert_eq!(chunks, vec![b"Hello ".as_slice(), b"World".as_slice()]);
     /// ```
@@ -538,7 +538,7 @@ impl<'a> Chunker<'a> {
     /// Works with both `.pattern()` and `.delimiters()`.
     ///
     /// ```
-    /// use memchunk::chunk;
+    /// use chunk::chunk;
     ///
     /// // With pattern
     /// let text = b"word\xE2\x96\x81\xE2\x96\x81\xE2\x96\x81next"; // word▁▁▁next
@@ -578,7 +578,7 @@ impl<'a> Chunker<'a> {
     /// Works with both `.pattern()` and `.delimiters()`.
     ///
     /// ```
-    /// use memchunk::chunk;
+    /// use chunk::chunk;
     ///
     /// // With pattern
     /// let text = b"verylongword\xE2\x96\x81short"; // verylongword▁short
@@ -665,7 +665,7 @@ impl<'a> Iterator for Chunker<'a> {
 /// # Example
 ///
 /// ```
-/// use memchunk::OwnedChunker;
+/// use chunk::OwnedChunker;
 ///
 /// let text = b"Hello world. How are you?".to_vec();
 /// let mut chunker = OwnedChunker::new(text)

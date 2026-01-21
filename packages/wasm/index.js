@@ -1,9 +1,9 @@
 /**
- * memchunk - The fastest semantic text chunking library
+ * @chonkiejs/chunk - The fastest semantic text chunking library
  *
  * @example
  * ```javascript
- * import { init, chunk } from 'memchunk';
+ * import { init, chunk } from '@chonkiejs/chunk';
  *
  * await init();
  *
@@ -26,7 +26,7 @@ import initWasm, {
     default_delimiters,
     chunk_offsets as wasmChunkOffsets,
     chunk_offsets_pattern as wasmChunkOffsetsPattern,
-} from './pkg/memchunk_wasm.js';
+} from './pkg/chonkiejs_chunk.js';
 
 export { default_target_size, default_delimiters };
 

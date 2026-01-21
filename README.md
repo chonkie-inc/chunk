@@ -1,18 +1,18 @@
 <p align="center">
-  <img src="assets/memchunk_wide.png" alt="memchunk" width="500">
+  <img src="assets/memchunk_wide.png" alt="chunk" width="500">
 </p>
 
-<h1 align="center">memchunk</h1>
+<h1 align="center">chunk</h1>
 
 <p align="center">
   <em>the fastest text chunking library — up to 1 TB/s throughput</em>
 </p>
 
 <p align="center">
-  <a href="https://crates.io/crates/memchunk"><img src="https://img.shields.io/crates/v/memchunk.svg?color=e74c3c" alt="crates.io"></a>
-  <a href="https://pypi.org/project/memchunk"><img src="https://img.shields.io/pypi/v/memchunk.svg?color=e67e22" alt="PyPI"></a>
-  <a href="https://www.npmjs.com/package/memchunk"><img src="https://img.shields.io/npm/v/memchunk.svg?color=2ecc71" alt="npm"></a>
-  <a href="https://docs.rs/memchunk"><img src="https://img.shields.io/docsrs/memchunk?color=3498db" alt="docs.rs"></a>
+  <a href="https://crates.io/crates/chunk"><img src="https://img.shields.io/crates/v/chunk.svg?color=e74c3c" alt="crates.io"></a>
+  <a href="https://pypi.org/project/chonkie-core"><img src="https://img.shields.io/pypi/v/chonkie-core.svg?color=e67e22" alt="PyPI"></a>
+  <a href="https://www.npmjs.com/package/@chonkiejs/chunk"><img src="https://img.shields.io/npm/v/@chonkiejs/chunk.svg?color=2ecc71" alt="npm"></a>
+  <a href="https://docs.rs/chunk"><img src="https://img.shields.io/docsrs/chunk?color=3498db" alt="docs.rs"></a>
   <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%2FApache--2.0-9b59b6.svg" alt="License"></a>
 </p>
 
@@ -20,7 +20,7 @@
 
 you know how every chunking library claims to be fast? yeah, we actually meant it.
 
-**memchunk** splits text at semantic boundaries (periods, newlines, the usual suspects) and does it stupid fast. we're talking "chunk the entire english wikipedia in 120ms" fast.
+**chunk** splits text at semantic boundaries (periods, newlines, the usual suspects) and does it stupid fast. we're talking "chunk the entire english wikipedia in 120ms" fast.
 
 want to know how? [read the blog post](https://minha.sh/posts/so,-you-want-to-chunk-really-fast) where we nerd out about SIMD instructions and lookup tables.
 
@@ -35,15 +35,15 @@ want to know how? [read the blog post](https://minha.sh/posts/so,-you-want-to-ch
 ## 📦 Installation
 
 ```bash
-cargo add memchunk
+cargo add chunk
 ```
 
-looking for [python](https://github.com/chonkie-inc/memchunk/tree/main/packages/python) or [javascript](https://github.com/chonkie-inc/memchunk/tree/main/packages/wasm)?
+looking for [python](https://github.com/chonkie-inc/chunk/tree/main/packages/python) or [javascript](https://github.com/chonkie-inc/chunk/tree/main/packages/wasm)?
 
 ## 🚀 Usage
 
 ```rust
-use memchunk::chunk;
+use chunk::chunk;
 
 let text = b"Hello world. How are you? I'm fine.\nThanks for asking.";
 
@@ -75,15 +75,15 @@ let chunks: Vec<&[u8]> = chunk(text)
 
 ## 📝 Citation
 
-If you use memchunk in your research, please cite it as follows:
+If you use chunk in your research, please cite it as follows:
 
 ```bibtex
-@software{memchunk2025,
+@software{chunk2025,
   author = {Minhas, Bhavnick},
-  title = {memchunk: The fastest text chunking library},
+  title = {chunk: The fastest text chunking library},
   year = {2025},
   publisher = {GitHub},
-  howpublished = {\url{https://github.com/chonkie-inc/memchunk}},
+  howpublished = {\url{https://github.com/chonkie-inc/chunk}},
 }
 ```
 

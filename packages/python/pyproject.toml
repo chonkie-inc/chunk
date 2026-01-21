@@ -3,14 +3,14 @@ requires = ["maturin>=1.0,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "memchunk"
+name = "chonkie-core"
 version = "0.4.0"
 description = "The fastest semantic text chunking library"
 readme = "README_PYPI.md"
 requires-python = ">=3.8"
 license = { text = "MIT OR Apache-2.0" }
 authors = [{ name = "Bhavnick Minhas" }]
-keywords = ["chunking", "text", "simd", "nlp", "tokenization", "rag"]
+keywords = ["chunking", "text", "simd", "nlp", "tokenization", "rag", "chonkie"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -28,10 +28,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/chonkie-inc/memchunk"
-Repository = "https://github.com/chonkie-inc/memchunk"
+Homepage = "https://github.com/chonkie-inc/chunk"
+Repository = "https://github.com/chonkie-inc/chunk"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
 python-source = "python"
-module-name = "memchunk._memchunk"
+module-name = "chonkie_core._chunk"

@@ -1,6 +1,6 @@
-"""memchunk - The fastest semantic text chunking library."""
+"""chonkie-core - The fastest semantic text chunking library."""
 
-from memchunk._memchunk import (
+from chonkie_core._chunk import (
     Chunker,
     chunk_offsets,
     DEFAULT_TARGET_SIZE,
@@ -8,7 +8,7 @@ from memchunk._memchunk import (
 )
 
 __all__ = ["chunk", "Chunker", "chunk_offsets", "DEFAULT_TARGET_SIZE", "DEFAULT_DELIMITERS"]
-__version__ = "0.1.0"
+__version__ = "0.4.0"
 
 
 def chunk(text, *, size=DEFAULT_TARGET_SIZE, delimiters=None):

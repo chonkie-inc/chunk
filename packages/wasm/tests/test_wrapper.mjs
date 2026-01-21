@@ -7,11 +7,11 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // We need to manually initialize since we're in Node.js
-const wasmPath = join(__dirname, '..', 'pkg', 'memchunk_wasm_bg.wasm');
+const wasmPath = join(__dirname, '..', 'pkg', 'chonkiejs_chunk_bg.wasm');
 const wasmBuffer = await readFile(wasmPath);
 
 // Patch the init function to work in Node.js
-import { initSync } from '../pkg/memchunk_wasm.js';
+import { initSync } from '../pkg/chonkiejs_chunk.js';
 initSync({ module: wasmBuffer });
 
 // Now import our wrapper
