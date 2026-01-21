@@ -1,5 +1,5 @@
-use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
 use chunk::chunk;
+use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
 
 fn bench_enwik8(c: &mut Criterion) {
     let text = std::fs::read("benches/data/enwik8").expect(
