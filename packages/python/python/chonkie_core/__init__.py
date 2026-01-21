@@ -3,9 +3,12 @@
 from chonkie_core._chunk import (
     Chunker,
     MergeResult,
+    PatternSplitter,
     chunk_offsets,
+    find_merge_indices,
     merge_splits,
     split_offsets,
+    split_pattern_offsets,
     DEFAULT_TARGET_SIZE,
     DEFAULT_DELIMITERS,
 )
@@ -14,9 +17,12 @@ __all__ = [
     "chunk",
     "Chunker",
     "MergeResult",
+    "PatternSplitter",
     "chunk_offsets",
+    "find_merge_indices",
     "merge_splits",
     "split_offsets",
+    "split_pattern_offsets",
     "DEFAULT_TARGET_SIZE",
     "DEFAULT_DELIMITERS",
 ]

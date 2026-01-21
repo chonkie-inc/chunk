@@ -52,11 +52,12 @@
 //! ```
 //! use chunk::merge_splits;
 //!
-//! // Merge segments based on token counts
+//! // Merge text segments based on token counts
+//! let splits = vec!["a", "b", "c", "d", "e", "f", "g"];
 //! let token_counts = vec![1, 1, 1, 1, 1, 1, 1];
-//! let result = merge_splits(&token_counts, 3, false);
-//! assert_eq!(result.indices, vec![3, 6, 7]); // Merge indices
-//! assert_eq!(result.token_counts, vec![3, 3, 1]); // Merged token counts
+//! let result = merge_splits(&splits, &token_counts, 3);
+//! assert_eq!(result.merged, vec!["abc", "def", "g"]);
+//! assert_eq!(result.token_counts, vec![3, 3, 1]);
 //! ```
 
 mod chunk;
@@ -68,12 +69,10 @@ mod split;
 pub use crate::chunk::{Chunker, OwnedChunker, chunk};
 
 // Re-export from split module
-pub use crate::split::{IncludeDelim, Splitter, split, split_at_delimiters};
+pub use crate::split::{IncludeDelim, PatternSplitter, Splitter, split, split_at_delimiters, split_at_patterns};
 
 // Re-export from merge module
-pub use crate::merge::{
-    MergeResult, compute_merged_token_counts, find_merge_indices, merge_splits,
-};
+pub use crate::merge::{MergeResult, find_merge_indices, merge_splits};
 
 // Re-export constants from delim module
 pub use crate::delim::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE};

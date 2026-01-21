@@ -1,6 +1,8 @@
 use chunk::{
     DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, IncludeDelim, OwnedChunker,
-    merge_splits as rust_merge_splits, split_at_delimiters,
+    PatternSplitter as RustPatternSplitter,
+    find_merge_indices as rust_find_merge_indices, merge_splits as rust_merge_splits,
+    split_at_delimiters, split_at_patterns,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
@@ -222,17 +224,144 @@ fn split_offsets(
     ))
 }
 
+/// Split text at every occurrence of multi-byte patterns, returning offsets.
+///
+/// Unlike split_offsets() which only handles single-byte delimiters,
+/// this function supports multi-byte patterns like ". ", "? ", "\n\n", etc.
+/// using the Aho-Corasick algorithm for efficient matching.
+///
+/// Args:
+///     text: bytes or str to split
+///     patterns: List of bytes or str patterns to split on (e.g., [". ", "? ", "! "])
+///     include_delim: Where to attach pattern - "prev" (default), "next", or "none"
+///     min_chars: Minimum characters per segment (default: 0). Shorter segments are merged.
+///
+/// Returns:
+///     List of (start, end) byte offsets for each segment.
+///
+/// Example:
+///     >>> text = b"Hello. World? Test!"
+///     >>> offsets = split_pattern_offsets(text, patterns=[b". ", b"? ", b"! "])
+///     >>> segments = [text[start:end] for start, end in offsets]
+///     >>> # [b"Hello. ", b"World? ", b"Test!"]
+///
+/// Example with paragraph splitting:
+///     >>> text = b"Para 1\n\nPara 2\n\nPara 3"
+///     >>> offsets = split_pattern_offsets(text, patterns=[b"\n\n"])
+///     >>> segments = [text[start:end] for start, end in offsets]
+///     >>> # [b"Para 1\n\n", b"Para 2\n\n", b"Para 3"]
+#[pyfunction]
+#[pyo3(signature = (text, patterns, include_delim="prev", min_chars=0))]
+fn split_pattern_offsets(
+    text: &Bound<'_, PyAny>,
+    patterns: Vec<Bound<'_, PyAny>>,
+    include_delim: &str,
+    min_chars: usize,
+) -> PyResult<Vec<(usize, usize)>> {
+    let text_bytes = extract_bytes(text)?;
+
+    // Convert Python patterns to Vec<Vec<u8>>
+    let pattern_bytes: Vec<Vec<u8>> = patterns
+        .iter()
+        .map(|p| extract_bytes(p))
+        .collect::<PyResult<Vec<Vec<u8>>>>()?;
+
+    // Convert to slice of slices for the Rust function
+    let pattern_slices: Vec<&[u8]> = pattern_bytes.iter().map(|p| p.as_slice()).collect();
+
+    let include = match include_delim {
+        "prev" => IncludeDelim::Prev,
+        "next" => IncludeDelim::Next,
+        "none" => IncludeDelim::None,
+        _ => {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "include_delim must be 'prev', 'next', or 'none'",
+            ));
+        }
+    };
+
+    Ok(split_at_patterns(
+        &text_bytes,
+        &pattern_slices,
+        include,
+        min_chars,
+    ))
+}
+
+/// A compiled multi-pattern splitter for efficient repeated splitting.
+///
+/// Unlike split_pattern_offsets() which rebuilds the automaton on each call,
+/// PatternSplitter compiles once and reuses. This is ~25x faster when splitting
+/// multiple texts with the same patterns.
+///
+/// Example:
+///     >>> from chonkie_core import PatternSplitter
+///     >>> splitter = PatternSplitter([b". ", b"? ", b"! "])
+///     >>> offsets1 = splitter.split(b"Hello. World?")
+///     >>> offsets2 = splitter.split(b"Another. Text!")
+#[pyclass]
+pub struct PatternSplitter {
+    inner: RustPatternSplitter,
+}
+
+#[pymethods]
+impl PatternSplitter {
+    #[new]
+    fn new(patterns: Vec<Bound<'_, PyAny>>) -> PyResult<Self> {
+        let pattern_bytes: Vec<Vec<u8>> = patterns
+            .iter()
+            .map(|p| extract_bytes(p))
+            .collect::<PyResult<Vec<Vec<u8>>>>()?;
+
+        let pattern_slices: Vec<&[u8]> = pattern_bytes.iter().map(|p| p.as_slice()).collect();
+        let inner = RustPatternSplitter::new(&pattern_slices);
+
+        Ok(Self { inner })
+    }
+
+    /// Split text using the compiled patterns.
+    ///
+    /// Args:
+    ///     text: bytes or str to split
+    ///     include_delim: Where to attach pattern - "prev" (default), "next", or "none"
+    ///     min_chars: Minimum characters per segment (default: 0)
+    ///
+    /// Returns:
+    ///     List of (start, end) byte offsets for each segment.
+    #[pyo3(signature = (text, include_delim="prev", min_chars=0))]
+    fn split(
+        &self,
+        text: &Bound<'_, PyAny>,
+        include_delim: &str,
+        min_chars: usize,
+    ) -> PyResult<Vec<(usize, usize)>> {
+        let text_bytes = extract_bytes(text)?;
+
+        let include = match include_delim {
+            "prev" => IncludeDelim::Prev,
+            "next" => IncludeDelim::Next,
+            "none" => IncludeDelim::None,
+            _ => {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "include_delim must be 'prev', 'next', or 'none'",
+                ));
+            }
+        };
+
+        Ok(self.inner.split(&text_bytes, include, min_chars))
+    }
+}
+
 /// Result of merge_splits operation.
 ///
 /// Attributes:
-///     indices: List of end indices for each merged chunk (exclusive).
-///              Use with slicing: segments[prev_end:end]
+///     merged: List of merged text strings.
 ///     token_counts: List of token counts for each merged chunk.
 #[pyclass]
 #[derive(Clone)]
 pub struct MergeResult {
     #[pyo3(get)]
-    indices: Vec<usize>,
+    merged: Vec<String>,
     #[pyo3(get)]
     token_counts: Vec<usize>,
 }
@@ -241,53 +370,74 @@ pub struct MergeResult {
 impl MergeResult {
     fn __repr__(&self) -> String {
         format!(
-            "MergeResult(indices={:?}, token_counts={:?})",
-            self.indices, self.token_counts
+            "MergeResult(merged=[...{} items], token_counts={:?})",
+            self.merged.len(),
+            self.token_counts
         )
     }
 
     fn __len__(&self) -> usize {
-        self.indices.len()
+        self.merged.len()
     }
 }
 
-/// Merge segments based on token counts, respecting chunk size limits.
+/// Find merge indices for combining segments within token limits.
 ///
-/// This is the Rust equivalent of Chonkie's Cython `_merge_splits` function.
-/// Used by RecursiveChunker to merge small segments into larger chunks
-/// that fit within a token budget.
+/// Returns indices marking where to split segments into chunks that
+/// respect the token budget. Use this when you only need indices,
+/// not the actual merged text.
 ///
 /// Args:
 ///     token_counts: List of token counts for each segment.
 ///     chunk_size: Maximum tokens per merged chunk.
-///     combine_whitespace: If True, adds +1 token per join for whitespace (default: False).
+///
+/// Returns:
+///     List of end indices (exclusive) for each chunk.
+///
+/// Example:
+///     >>> from chonkie_core import find_merge_indices
+///     >>> token_counts = [1, 1, 1, 1, 1, 1, 1]
+///     >>> indices = find_merge_indices(token_counts, chunk_size=3)
+///     >>> indices  # [3, 6, 7]
+#[pyfunction]
+#[pyo3(signature = (token_counts, chunk_size))]
+fn find_merge_indices(token_counts: Vec<usize>, chunk_size: usize) -> Vec<usize> {
+    rust_find_merge_indices(&token_counts, chunk_size)
+}
+
+/// Merge text segments based on token counts, respecting chunk size limits.
+///
+/// This is the Rust equivalent of Chonkie's Cython `_merge_splits` function.
+/// Performs string concatenation in Rust for optimal performance.
+///
+/// Args:
+///     splits: List of text segments to merge.
+///     token_counts: List of token counts for each segment.
+///     chunk_size: Maximum tokens per merged chunk.
 ///
 /// Returns:
 ///     MergeResult with:
-///     - indices: End indices for slicing segments (exclusive)
+///     - merged: List of merged text strings
 ///     - token_counts: Token count for each merged chunk
 ///
 /// Example:
 ///     >>> from chonkie_core import merge_splits
-///     >>> token_counts = [1, 1, 1, 1, 1, 1, 1]
-///     >>> result = merge_splits(token_counts, chunk_size=3)
-///     >>> result.indices  # [3, 6, 7]
-///     >>> result.token_counts  # [3, 3, 1]
-///
-/// Example with whitespace:
-///     >>> result = merge_splits(token_counts, chunk_size=5, combine_whitespace=True)
-///     >>> result.indices  # [3, 6, 7]
-///     >>> result.token_counts  # [5, 5, 1] (3 tokens + 2 whitespace joins per chunk)
+///     >>> splits = ["Hello", "world", "!", "How", "are", "you"]
+///     >>> token_counts = [1, 1, 1, 1, 1, 1]
+///     >>> result = merge_splits(splits, token_counts, chunk_size=3)
+///     >>> result.merged  # ["Helloworld!", "Howareyou"]
+///     >>> result.token_counts  # [3, 3]
 #[pyfunction]
-#[pyo3(signature = (token_counts, chunk_size, combine_whitespace=false))]
+#[pyo3(signature = (splits, token_counts, chunk_size))]
 fn merge_splits(
+    splits: Vec<String>,
     token_counts: Vec<usize>,
     chunk_size: usize,
-    combine_whitespace: bool,
 ) -> MergeResult {
-    let result = rust_merge_splits(&token_counts, chunk_size, combine_whitespace);
+    let split_refs: Vec<&str> = splits.iter().map(|s| s.as_str()).collect();
+    let result = rust_merge_splits(&split_refs, &token_counts, chunk_size);
     MergeResult {
-        indices: result.indices,
+        merged: result.merged,
         token_counts: result.token_counts,
     }
 }
@@ -296,8 +446,11 @@ fn merge_splits(
 fn _chunk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Chunker>()?;
     m.add_class::<MergeResult>()?;
+    m.add_class::<PatternSplitter>()?;
     m.add_function(wrap_pyfunction!(chunk_offsets, m)?)?;
     m.add_function(wrap_pyfunction!(split_offsets, m)?)?;
+    m.add_function(wrap_pyfunction!(split_pattern_offsets, m)?)?;
+    m.add_function(wrap_pyfunction!(find_merge_indices, m)?)?;
     m.add_function(wrap_pyfunction!(merge_splits, m)?)?;
     m.add("DEFAULT_TARGET_SIZE", DEFAULT_TARGET_SIZE)?;
     m.add("DEFAULT_DELIMITERS", DEFAULT_DELIMITERS)?;

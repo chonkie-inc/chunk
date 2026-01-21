@@ -6,14 +6,13 @@
 
 /// Find merge indices for combining segments within token limits.
 ///
-/// This is the core algorithm used by RecursiveChunker to merge small segments
-/// into larger chunks that fit within a token budget.
+/// This is the core algorithm used by chunkers to find optimal merge points
+/// based on token counts and chunk size limits.
 ///
 /// # Arguments
 ///
 /// * `token_counts` - Token count for each segment
 /// * `chunk_size` - Maximum tokens per merged chunk
-/// * `combine_whitespace` - If true, adds +1 token per join for whitespace
 ///
 /// # Returns
 ///
@@ -26,21 +25,17 @@
 /// use chunk::find_merge_indices;
 ///
 /// let token_counts = vec![10, 15, 20, 5, 8, 12];
-/// let indices = find_merge_indices(&token_counts, 30, false);
+/// let indices = find_merge_indices(&token_counts, 30);
 /// // Merge [0:2], [2:4], [4:6] -> indices = [2, 4, 6]
 /// ```
-pub fn find_merge_indices(
-    token_counts: &[usize],
-    chunk_size: usize,
-    combine_whitespace: bool,
-) -> Vec<usize> {
+pub fn find_merge_indices(token_counts: &[usize], chunk_size: usize) -> Vec<usize> {
     if token_counts.is_empty() {
         return vec![];
     }
 
     let n = token_counts.len();
 
-    // Build cumulative token counts (raw, without whitespace adjustment)
+    // Build cumulative token counts
     let mut cumulative: Vec<usize> = Vec::with_capacity(n + 1);
     cumulative.push(0);
 
@@ -55,32 +50,13 @@ pub fn find_merge_indices(
     let mut current_pos = 0;
 
     while current_pos < n {
-        // For a chunk from current_pos to end:
-        // - Raw tokens: cumulative[end] - cumulative[current_pos]
-        // - Whitespace tokens (if combine_whitespace): (end - current_pos - 1) for joins
-        // - Total must be <= chunk_size
-        //
-        // With whitespace: cumulative[end] + end <= cumulative[current_pos] + current_pos + chunk_size + 1
-        // Without:         cumulative[end] <= cumulative[current_pos] + chunk_size
-
         // Binary search for rightmost valid position
         let mut left = current_pos + 1;
         let mut right = n + 1;
 
         while left < right {
             let mid = (left + right) / 2;
-            let fits = if combine_whitespace {
-                // Total tokens = raw_sum + (end - start - 1) whitespace joins
-                let raw_sum = cumulative[mid] - cumulative[current_pos];
-                let whitespace = if mid > current_pos + 1 {
-                    mid - current_pos - 1
-                } else {
-                    0
-                };
-                raw_sum + whitespace <= chunk_size
-            } else {
-                cumulative[mid] - cumulative[current_pos] <= chunk_size
-            };
+            let fits = cumulative[mid] - cumulative[current_pos] <= chunk_size;
 
             if fits {
                 left = mid + 1;
@@ -100,24 +76,7 @@ pub fn find_merge_indices(
 }
 
 /// Compute merged token counts from merge indices.
-///
-/// Given the original token counts and merge indices from `find_merge_indices`,
-/// compute the token count for each merged chunk.
-///
-/// # Arguments
-///
-/// * `token_counts` - Original token counts for each segment
-/// * `merge_indices` - End indices from `find_merge_indices`
-/// * `combine_whitespace` - If true, adds +1 token per join for whitespace
-///
-/// # Returns
-///
-/// Vector of token counts for each merged chunk.
-pub fn compute_merged_token_counts(
-    token_counts: &[usize],
-    merge_indices: &[usize],
-    combine_whitespace: bool,
-) -> Vec<usize> {
+fn compute_merged_token_counts(token_counts: &[usize], merge_indices: &[usize]) -> Vec<usize> {
     if merge_indices.is_empty() {
         return vec![];
     }
@@ -127,13 +86,7 @@ pub fn compute_merged_token_counts(
 
     for &end in merge_indices {
         let end = end.min(token_counts.len());
-        let mut sum: usize = token_counts[start..end].iter().sum();
-
-        if combine_whitespace && end > start {
-            // Add whitespace tokens for joins (n-1 joins for n segments)
-            sum += end - start - 1;
-        }
-
+        let sum: usize = token_counts[start..end].iter().sum();
         result.push(sum);
         start = end;
     }
@@ -144,71 +97,80 @@ pub fn compute_merged_token_counts(
 /// Result of merge_splits operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MergeResult {
-    /// End indices for each merged chunk (exclusive).
-    /// Use with slicing: segments[prev_end..end]
-    pub indices: Vec<usize>,
+    /// Merged text segments
+    pub merged: Vec<String>,
     /// Token count for each merged chunk
     pub token_counts: Vec<usize>,
 }
 
-/// Merge segments based on token counts, respecting chunk size limits.
+/// Merge text segments based on token counts, respecting chunk size limits.
 ///
 /// This is the Rust equivalent of Chonkie's Cython `_merge_splits` function.
-/// Returns indices for slicing the original segments, rather than copying strings.
+/// Performs string concatenation in Rust for optimal performance.
 ///
 /// # Arguments
 ///
+/// * `splits` - Text segments to merge
 /// * `token_counts` - Token count for each segment
 /// * `chunk_size` - Maximum tokens per merged chunk
-/// * `combine_whitespace` - If true, join with whitespace (+1 token per join)
 ///
 /// # Returns
 ///
-/// `MergeResult` containing:
-/// - `indices`: End indices for slicing segments
-/// - `token_counts`: Token count for each merged chunk
+/// `MergeResult` containing merged text and token counts.
 ///
 /// # Example
 ///
 /// ```
 /// use chunk::merge_splits;
 ///
-/// // segments = ["Hello", "world", "!", "How", "are", "you", "?"]
-/// let token_counts = vec![1, 1, 1, 1, 1, 1, 1];
-/// let result = merge_splits(&token_counts, 5, true);
-///
-/// // Use indices to slice: segments[0..3], segments[3..6], segments[6..7]
-/// // chunk_size=5 allows 3 segments + 2 whitespace joins = 5 tokens per chunk
-/// assert_eq!(result.indices, vec![3, 6, 7]);
-/// assert_eq!(result.token_counts, vec![5, 5, 1]); // includes whitespace tokens
+/// let splits = vec!["Hello", "world", "!", "How", "are", "you"];
+/// let token_counts = vec![1, 1, 1, 1, 1, 1];
+/// let result = merge_splits(&splits, &token_counts, 3);
+/// assert_eq!(result.merged, vec!["Helloworld!", "Howareyou"]);
+/// assert_eq!(result.token_counts, vec![3, 3]);
 /// ```
 pub fn merge_splits(
+    splits: &[&str],
     token_counts: &[usize],
     chunk_size: usize,
-    combine_whitespace: bool,
 ) -> MergeResult {
     // Early exit for empty input
-    if token_counts.is_empty() {
+    if splits.is_empty() || token_counts.is_empty() {
         return MergeResult {
-            indices: vec![],
+            merged: vec![],
             token_counts: vec![],
         };
     }
 
-    // If all token counts exceed chunk_size, return one chunk per segment
+    // If all token counts exceed chunk_size, return segments as-is
     if token_counts.iter().all(|&c| c > chunk_size) {
-        let indices: Vec<usize> = (1..=token_counts.len()).collect();
         return MergeResult {
-            indices,
+            merged: splits.iter().map(|s| s.to_string()).collect(),
             token_counts: token_counts.to_vec(),
         };
     }
 
-    let indices = find_merge_indices(token_counts, chunk_size, combine_whitespace);
-    let merged_counts = compute_merged_token_counts(token_counts, &indices, combine_whitespace);
+    let indices = find_merge_indices(token_counts, chunk_size);
+    let merged_counts = compute_merged_token_counts(token_counts, &indices);
+
+    // Build merged strings
+    let mut merged = Vec::with_capacity(indices.len());
+    let mut start = 0;
+
+    for &end in &indices {
+        let end = end.min(splits.len());
+        // Pre-calculate total length for efficient allocation
+        let total_len: usize = splits[start..end].iter().map(|s| s.len()).sum();
+        let mut s = String::with_capacity(total_len);
+        for segment in &splits[start..end] {
+            s.push_str(segment);
+        }
+        merged.push(s);
+        start = end;
+    }
 
     MergeResult {
-        indices,
+        merged,
         token_counts: merged_counts,
     }
 }
@@ -220,104 +182,62 @@ mod tests {
     #[test]
     fn test_find_merge_indices_basic() {
         let token_counts = vec![1, 1, 1, 1, 1, 1, 1];
-        let indices = find_merge_indices(&token_counts, 3, false);
-        // Should merge into groups of 3 tokens
+        let indices = find_merge_indices(&token_counts, 3);
         assert_eq!(indices, vec![3, 6, 7]);
-    }
-
-    #[test]
-    fn test_find_merge_indices_with_whitespace() {
-        let token_counts = vec![1, 1, 1, 1, 1, 1, 1];
-        let indices = find_merge_indices(&token_counts, 3, true);
-        // With whitespace: (n-1) joins add (n-1) whitespace tokens
-        // Chunk 0..2: raw=2, whitespace=1, total=3 <= 3. Fits.
-        // Chunk 2..4: raw=2, whitespace=1, total=3 <= 3. Fits.
-        // Chunk 4..6: raw=2, whitespace=1, total=3 <= 3. Fits.
-        // Chunk 6..7: raw=1, whitespace=0, total=1 <= 3. Fits.
-        assert_eq!(indices, vec![2, 4, 6, 7]);
     }
 
     #[test]
     fn test_find_merge_indices_large_chunks() {
         let token_counts = vec![10, 15, 20, 5, 8, 12];
-        let indices = find_merge_indices(&token_counts, 30, false);
-        // 10+15=25 < 30, 10+15+20=45 > 30 -> merge at 2
-        // 20 < 30, 20+5=25 < 30, 20+5+8=33 > 30 -> merge at 4
-        // 8+12=20 < 30 -> merge at 6
+        let indices = find_merge_indices(&token_counts, 30);
         assert_eq!(indices, vec![2, 4, 6]);
     }
 
     #[test]
     fn test_find_merge_indices_empty() {
         let token_counts: Vec<usize> = vec![];
-        let indices = find_merge_indices(&token_counts, 10, false);
+        let indices = find_merge_indices(&token_counts, 10);
         assert!(indices.is_empty());
     }
 
     #[test]
     fn test_find_merge_indices_single() {
         let token_counts = vec![5];
-        let indices = find_merge_indices(&token_counts, 10, false);
+        let indices = find_merge_indices(&token_counts, 10);
         assert_eq!(indices, vec![1]);
     }
 
     #[test]
     fn test_find_merge_indices_all_large() {
-        // All segments exceed chunk_size
         let token_counts = vec![50, 60, 70];
-        let indices = find_merge_indices(&token_counts, 30, false);
-        // Each segment becomes its own chunk
+        let indices = find_merge_indices(&token_counts, 30);
         assert_eq!(indices, vec![1, 2, 3]);
     }
 
     #[test]
     fn test_merge_splits_basic() {
+        let splits = vec!["a", "b", "c", "d", "e", "f", "g"];
         let token_counts = vec![1, 1, 1, 1, 1, 1, 1];
-        let result = merge_splits(&token_counts, 3, false);
-        assert_eq!(result.indices, vec![3, 6, 7]);
+        let result = merge_splits(&splits, &token_counts, 3);
+        assert_eq!(result.merged, vec!["abc", "def", "g"]);
         assert_eq!(result.token_counts, vec![3, 3, 1]);
     }
 
     #[test]
-    fn test_merge_splits_with_whitespace() {
-        let token_counts = vec![1, 1, 1, 1, 1, 1, 1];
-        let result = merge_splits(&token_counts, 5, true);
-        // With whitespace tokens added for joins
-        // [1,1] + 1 whitespace = 3, [1,1] + 1 = 3, etc.
-        assert_eq!(result.indices, vec![3, 6, 7]);
-        assert_eq!(result.token_counts, vec![5, 5, 1]);
-    }
-
-    #[test]
     fn test_merge_splits_empty() {
+        let splits: Vec<&str> = vec![];
         let token_counts: Vec<usize> = vec![];
-        let result = merge_splits(&token_counts, 10, false);
-        assert!(result.indices.is_empty());
+        let result = merge_splits(&splits, &token_counts, 10);
+        assert!(result.merged.is_empty());
         assert!(result.token_counts.is_empty());
     }
 
     #[test]
     fn test_merge_splits_all_exceed_limit() {
+        let splits = vec!["aaa", "bbb", "ccc"];
         let token_counts = vec![50, 60, 70];
-        let result = merge_splits(&token_counts, 30, false);
-        assert_eq!(result.indices, vec![1, 2, 3]);
+        let result = merge_splits(&splits, &token_counts, 30);
+        assert_eq!(result.merged, vec!["aaa", "bbb", "ccc"]);
         assert_eq!(result.token_counts, vec![50, 60, 70]);
-    }
-
-    #[test]
-    fn test_compute_merged_token_counts() {
-        let token_counts = vec![10, 15, 20, 5, 8, 12];
-        let indices = vec![2, 4, 6];
-        let merged = compute_merged_token_counts(&token_counts, &indices, false);
-        assert_eq!(merged, vec![25, 25, 20]); // 10+15, 20+5, 8+12
-    }
-
-    #[test]
-    fn test_compute_merged_token_counts_with_whitespace() {
-        let token_counts = vec![1, 1, 1];
-        let indices = vec![3];
-        let merged = compute_merged_token_counts(&token_counts, &indices, true);
-        // 1+1+1 + 2 whitespace tokens = 5
-        assert_eq!(merged, vec![5]);
     }
 }

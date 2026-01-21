@@ -1,6 +1,6 @@
 use chunk::{
     DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, IncludeDelim, OwnedChunker,
-    merge_splits as rust_merge_splits, split_at_delimiters,
+    find_merge_indices as rust_find_merge_indices, split_at_delimiters,
 };
 use wasm_bindgen::prelude::*;
 
@@ -259,47 +259,24 @@ pub fn split_offsets(
         .collect()
 }
 
-/// Merge segments based on token counts, respecting chunk size limits.
+/// Find merge indices for combining segments within token limits.
 ///
-/// This is the equivalent of Chonkie's Cython `_merge_splits` function.
-/// Used by RecursiveChunker to merge small segments into larger chunks
-/// that fit within a token budget.
-///
-/// Returns a flat array [index1, count1, index2, count2, ...] where:
-/// - indices are end indices for slicing segments (exclusive)
-/// - counts are token counts for each merged chunk
+/// Returns indices marking where to split segments into chunks that
+/// respect the token budget. Use this to determine merge boundaries,
+/// then join strings in JavaScript.
 ///
 /// @param token_counts - Array of token counts for each segment
 /// @param chunk_size - Maximum tokens per merged chunk
-/// @param combine_whitespace - If true, adds +1 token per join for whitespace (default: false)
+/// @returns Array of end indices (exclusive) for each chunk
 ///
 /// @example
 /// ```javascript
 /// const tokenCounts = new Uint32Array([1, 1, 1, 1, 1, 1, 1]);
-/// const result = merge_splits(tokenCounts, 3, false);
-/// // result = [3, 3, 6, 3, 7, 1] -> indices=[3,6,7], counts=[3,3,1]
-/// const indices = [];
-/// const counts = [];
-/// for (let i = 0; i < result.length; i += 2) {
-///     indices.push(result[i]);
-///     counts.push(result[i + 1]);
-/// }
+/// const indices = find_merge_indices(tokenCounts, 3);
+/// // indices = [3, 6, 7]
+/// // Use to slice: segments.slice(0, 3), segments.slice(3, 6), segments.slice(6, 7)
 /// ```
 #[wasm_bindgen]
-pub fn merge_splits(
-    token_counts: &[usize],
-    chunk_size: usize,
-    combine_whitespace: Option<bool>,
-) -> Vec<usize> {
-    let result = rust_merge_splits(
-        token_counts,
-        chunk_size,
-        combine_whitespace.unwrap_or(false),
-    );
-    result
-        .indices
-        .into_iter()
-        .zip(result.token_counts)
-        .flat_map(|(idx, count)| [idx, count])
-        .collect()
+pub fn find_merge_indices(token_counts: &[usize], chunk_size: usize) -> Vec<usize> {
+    rust_find_merge_indices(token_counts, chunk_size)
 }

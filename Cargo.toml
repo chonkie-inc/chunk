@@ -15,6 +15,7 @@ exclude = ["benches/data/*", "packages/*", "assets/*", "scripts/*", "*.png", "*.
 
 [dependencies]
 memchr = "2"
+daggrs = "0.1"
 
 [dev-dependencies]
 criterion = "0.5"
