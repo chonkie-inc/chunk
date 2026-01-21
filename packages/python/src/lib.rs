@@ -1,5 +1,6 @@
 use chunk::{
-    DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, IncludeDelim, OwnedChunker, split_at_delimiters,
+    DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, IncludeDelim, OwnedChunker,
+    merge_splits as rust_merge_splits, split_at_delimiters,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
@@ -221,11 +222,83 @@ fn split_offsets(
     ))
 }
 
+/// Result of merge_splits operation.
+///
+/// Attributes:
+///     indices: List of end indices for each merged chunk (exclusive).
+///              Use with slicing: segments[prev_end:end]
+///     token_counts: List of token counts for each merged chunk.
+#[pyclass]
+#[derive(Clone)]
+pub struct MergeResult {
+    #[pyo3(get)]
+    indices: Vec<usize>,
+    #[pyo3(get)]
+    token_counts: Vec<usize>,
+}
+
+#[pymethods]
+impl MergeResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "MergeResult(indices={:?}, token_counts={:?})",
+            self.indices, self.token_counts
+        )
+    }
+
+    fn __len__(&self) -> usize {
+        self.indices.len()
+    }
+}
+
+/// Merge segments based on token counts, respecting chunk size limits.
+///
+/// This is the Rust equivalent of Chonkie's Cython `_merge_splits` function.
+/// Used by RecursiveChunker to merge small segments into larger chunks
+/// that fit within a token budget.
+///
+/// Args:
+///     token_counts: List of token counts for each segment.
+///     chunk_size: Maximum tokens per merged chunk.
+///     combine_whitespace: If True, adds +1 token per join for whitespace (default: False).
+///
+/// Returns:
+///     MergeResult with:
+///     - indices: End indices for slicing segments (exclusive)
+///     - token_counts: Token count for each merged chunk
+///
+/// Example:
+///     >>> from chonkie_core import merge_splits
+///     >>> token_counts = [1, 1, 1, 1, 1, 1, 1]
+///     >>> result = merge_splits(token_counts, chunk_size=3)
+///     >>> result.indices  # [3, 6, 7]
+///     >>> result.token_counts  # [3, 3, 1]
+///
+/// Example with whitespace:
+///     >>> result = merge_splits(token_counts, chunk_size=5, combine_whitespace=True)
+///     >>> result.indices  # [3, 6, 7]
+///     >>> result.token_counts  # [5, 5, 1] (3 tokens + 2 whitespace joins per chunk)
+#[pyfunction]
+#[pyo3(signature = (token_counts, chunk_size, combine_whitespace=false))]
+fn merge_splits(
+    token_counts: Vec<usize>,
+    chunk_size: usize,
+    combine_whitespace: bool,
+) -> MergeResult {
+    let result = rust_merge_splits(&token_counts, chunk_size, combine_whitespace);
+    MergeResult {
+        indices: result.indices,
+        token_counts: result.token_counts,
+    }
+}
+
 #[pymodule]
 fn _chunk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Chunker>()?;
+    m.add_class::<MergeResult>()?;
     m.add_function(wrap_pyfunction!(chunk_offsets, m)?)?;
     m.add_function(wrap_pyfunction!(split_offsets, m)?)?;
+    m.add_function(wrap_pyfunction!(merge_splits, m)?)?;
     m.add("DEFAULT_TARGET_SIZE", DEFAULT_TARGET_SIZE)?;
     m.add("DEFAULT_DELIMITERS", DEFAULT_DELIMITERS)?;
     Ok(())

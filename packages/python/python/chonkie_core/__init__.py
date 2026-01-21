@@ -2,7 +2,9 @@
 
 from chonkie_core._chunk import (
     Chunker,
+    MergeResult,
     chunk_offsets,
+    merge_splits,
     split_offsets,
     DEFAULT_TARGET_SIZE,
     DEFAULT_DELIMITERS,
@@ -11,7 +13,9 @@ from chonkie_core._chunk import (
 __all__ = [
     "chunk",
     "Chunker",
+    "MergeResult",
     "chunk_offsets",
+    "merge_splits",
     "split_offsets",
     "DEFAULT_TARGET_SIZE",
     "DEFAULT_DELIMITERS",
