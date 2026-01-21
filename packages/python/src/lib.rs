@@ -1,9 +1,13 @@
 use chunk::{
     DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, IncludeDelim, OwnedChunker,
     PatternSplitter as RustPatternSplitter,
+    filter_split_indices as rust_filter_split_indices,
+    find_local_minima_interpolated as rust_find_local_minima,
     find_merge_indices as rust_find_merge_indices, merge_splits as rust_merge_splits,
-    split_at_delimiters, split_at_patterns,
+    savgol_filter as rust_savgol_filter, split_at_delimiters, split_at_patterns,
+    windowed_cross_similarity as rust_windowed_cross_similarity,
 };
+use numpy::{PyArray1, PyReadonlyArray1, PyReadonlyArray2, PyUntypedArrayMethods};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyString};
 
@@ -442,6 +446,182 @@ fn merge_splits(
     }
 }
 
+// =============================================================================
+// Savitzky-Golay Filter Functions (NumPy-optimized)
+// =============================================================================
+
+/// Apply Savitzky-Golay filter to data.
+///
+/// This filter is used for smoothing signals and computing derivatives.
+/// It fits a polynomial to a sliding window of data points.
+///
+/// Args:
+///     data: Input signal as numpy array of floats.
+///     window_length: Filter window length (must be odd and > poly_order). Default: 5.
+///     poly_order: Polynomial order for fitting. Default: 3.
+///     deriv: Derivative order (0=smoothing, 1=first, 2=second). Default: 0.
+///
+/// Returns:
+///     Filtered data as numpy array.
+///
+/// Example:
+///     >>> import numpy as np
+///     >>> from chonkie_core import savgol_filter
+///     >>> data = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+///     >>> smoothed = savgol_filter(data, window_length=5, poly_order=2)
+#[pyfunction]
+#[pyo3(signature = (data, window_length=5, poly_order=3, deriv=0))]
+fn savgol_filter<'py>(
+    py: Python<'py>,
+    data: PyReadonlyArray1<'py, f64>,
+    window_length: usize,
+    poly_order: usize,
+    deriv: usize,
+) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    let data_slice = data.as_slice()?;
+    let result = rust_savgol_filter(data_slice, window_length, poly_order, deriv).ok_or_else(
+        || {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Invalid parameters: window_length must be odd and > poly_order",
+            )
+        },
+    )?;
+    Ok(PyArray1::from_vec(py, result))
+}
+
+/// Find local minima with sub-sample accuracy using Savitzky-Golay derivatives.
+///
+/// A point is considered a minimum if its first derivative is near zero
+/// and its second derivative is positive (concave up).
+///
+/// Args:
+///     data: Input signal as numpy array.
+///     window_size: Savitzky-Golay window size (must be odd). Default: 11.
+///     poly_order: Polynomial order. Default: 2.
+///     tolerance: Tolerance for first derivative near zero. Default: 0.2.
+///
+/// Returns:
+///     Tuple of (indices, values) as numpy arrays where minima were found.
+///
+/// Example:
+///     >>> import numpy as np
+///     >>> from chonkie_core import find_local_minima_interpolated
+///     >>> data = np.array([x**2 for x in range(-10, 11)], dtype=np.float64)
+///     >>> indices, values = find_local_minima_interpolated(data)
+#[pyfunction]
+#[pyo3(signature = (data, window_size=11, poly_order=2, tolerance=0.2))]
+fn find_local_minima_interpolated<'py>(
+    py: Python<'py>,
+    data: PyReadonlyArray1<'py, f64>,
+    window_size: usize,
+    poly_order: usize,
+    tolerance: f64,
+) -> PyResult<(Bound<'py, PyArray1<i64>>, Bound<'py, PyArray1<f64>>)> {
+    let data_slice = data.as_slice()?;
+    let result =
+        rust_find_local_minima(data_slice, window_size, poly_order, tolerance).ok_or_else(
+            || {
+                PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Invalid parameters: window_size must be odd and > poly_order",
+                )
+            },
+        )?;
+    let indices: Vec<i64> = result.indices.into_iter().map(|i| i as i64).collect();
+    Ok((
+        PyArray1::from_vec(py, indices),
+        PyArray1::from_vec(py, result.values),
+    ))
+}
+
+/// Compute windowed cross-similarity for semantic chunking.
+///
+/// For each position, computes the average cosine similarity between
+/// consecutive embedding vectors within a sliding window.
+///
+/// Args:
+///     embeddings: 2D numpy array of embeddings (n_sentences x embedding_dim).
+///     window_size: Size of sliding window (must be odd and >= 3). Default: 3.
+///
+/// Returns:
+///     Numpy array of average similarities (length n_sentences - 1).
+///
+/// Example:
+///     >>> import numpy as np
+///     >>> from chonkie_core import windowed_cross_similarity
+///     >>> embeddings = np.array([[1.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+///     >>> similarities = windowed_cross_similarity(embeddings, window_size=3)
+#[pyfunction]
+#[pyo3(signature = (embeddings, window_size=3))]
+fn windowed_cross_similarity<'py>(
+    py: Python<'py>,
+    embeddings: PyReadonlyArray2<'py, f64>,
+    window_size: usize,
+) -> PyResult<Bound<'py, PyArray1<f64>>> {
+    let shape = embeddings.shape();
+    let n = shape[0];
+    let d = shape[1];
+
+    if n == 0 {
+        return Ok(PyArray1::from_vec(py, vec![]));
+    }
+
+    // Get flattened view
+    let flat = embeddings.as_slice()?;
+
+    let result = rust_windowed_cross_similarity(flat, n, d, window_size).ok_or_else(|| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "Invalid parameters: window_size must be odd and >= 3, and need at least 2 embeddings",
+        )
+    })?;
+    Ok(PyArray1::from_vec(py, result))
+}
+
+/// Filter split indices by percentile threshold and minimum distance.
+///
+/// This is used in semantic chunking to select optimal split points
+/// from candidate minima, ensuring splits are spread out and have
+/// low enough similarity values.
+///
+/// Args:
+///     indices: Candidate split indices as numpy array.
+///     values: Similarity values at those indices as numpy array.
+///     threshold: Percentile threshold (0.0-1.0). Default: 0.5.
+///     min_distance: Minimum distance between selected splits. Default: 2.
+///
+/// Returns:
+///     Tuple of (filtered_indices, filtered_values) as numpy arrays.
+///
+/// Example:
+///     >>> import numpy as np
+///     >>> from chonkie_core import filter_split_indices
+///     >>> indices = np.array([0, 5, 8, 15, 20])
+///     >>> values = np.array([0.1, 0.3, 0.2, 0.5, 0.4])
+///     >>> filtered_idx, filtered_val = filter_split_indices(indices, values, threshold=0.5)
+#[pyfunction]
+#[pyo3(signature = (indices, values, threshold=0.5, min_distance=2))]
+fn filter_split_indices<'py>(
+    py: Python<'py>,
+    indices: PyReadonlyArray1<'py, i64>,
+    values: PyReadonlyArray1<'py, f64>,
+    threshold: f64,
+    min_distance: usize,
+) -> PyResult<(Bound<'py, PyArray1<i64>>, Bound<'py, PyArray1<f64>>)> {
+    let indices_slice = indices.as_slice()?;
+    let values_slice = values.as_slice()?;
+
+    // Convert i64 to usize for Rust function
+    let indices_usize: Vec<usize> = indices_slice.iter().map(|&i| i as usize).collect();
+
+    let result = rust_filter_split_indices(&indices_usize, values_slice, threshold, min_distance);
+
+    // Convert back to i64 for numpy
+    let result_indices: Vec<i64> = result.indices.into_iter().map(|i| i as i64).collect();
+    Ok((
+        PyArray1::from_vec(py, result_indices),
+        PyArray1::from_vec(py, result.values),
+    ))
+}
+
 #[pymodule]
 fn _chunk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Chunker>()?;
@@ -452,6 +632,11 @@ fn _chunk(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(split_pattern_offsets, m)?)?;
     m.add_function(wrap_pyfunction!(find_merge_indices, m)?)?;
     m.add_function(wrap_pyfunction!(merge_splits, m)?)?;
+    // Savitzky-Golay functions
+    m.add_function(wrap_pyfunction!(savgol_filter, m)?)?;
+    m.add_function(wrap_pyfunction!(find_local_minima_interpolated, m)?)?;
+    m.add_function(wrap_pyfunction!(windowed_cross_similarity, m)?)?;
+    m.add_function(wrap_pyfunction!(filter_split_indices, m)?)?;
     m.add("DEFAULT_TARGET_SIZE", DEFAULT_TARGET_SIZE)?;
     m.add("DEFAULT_DELIMITERS", DEFAULT_DELIMITERS)?;
     Ok(())

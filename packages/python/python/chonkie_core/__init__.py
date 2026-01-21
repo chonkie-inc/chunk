@@ -9,6 +9,11 @@ from chonkie_core._chunk import (
     merge_splits,
     split_offsets,
     split_pattern_offsets,
+    # Savitzky-Golay filter functions
+    savgol_filter,
+    find_local_minima_interpolated,
+    windowed_cross_similarity,
+    filter_split_indices,
     DEFAULT_TARGET_SIZE,
     DEFAULT_DELIMITERS,
 )
@@ -23,10 +28,15 @@ __all__ = [
     "merge_splits",
     "split_offsets",
     "split_pattern_offsets",
+    # Savitzky-Golay filter functions
+    "savgol_filter",
+    "find_local_minima_interpolated",
+    "windowed_cross_similarity",
+    "filter_split_indices",
     "DEFAULT_TARGET_SIZE",
     "DEFAULT_DELIMITERS",
 ]
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 
 def chunk(text, *, size=DEFAULT_TARGET_SIZE, delimiters=None):

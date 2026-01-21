@@ -63,6 +63,7 @@
 mod chunk;
 mod delim;
 mod merge;
+mod savgol;
 mod split;
 
 // Re-export from chunk module
@@ -76,6 +77,12 @@ pub use crate::merge::{MergeResult, find_merge_indices, merge_splits};
 
 // Re-export constants from delim module
 pub use crate::delim::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE};
+
+// Re-export from savgol module
+pub use crate::savgol::{
+    FilteredIndices, MinimaResult, filter_split_indices, find_local_minima_interpolated,
+    savgol_filter, windowed_cross_similarity,
+};
 
 // Additional tests that span modules
 #[cfg(test)]

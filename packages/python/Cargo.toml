@@ -11,4 +11,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 pyo3 = { version = "0.27", features = ["extension-module"] }
+numpy = "0.27"
 chunk = { path = "../.." }
