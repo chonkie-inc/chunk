@@ -1,12 +1,15 @@
 //! The fastest semantic text chunking library — up to 1TB/s chunking throughput.
 //!
-//! This crate provides two main functionalities:
+//! This crate provides three main functionalities:
 //!
 //! 1. **Size-based chunking** ([`chunk`] module): Split text into chunks of a target size,
 //!    preferring to break at delimiter boundaries.
 //!
 //! 2. **Delimiter splitting** ([`split`] module): Split text at every delimiter occurrence,
 //!    equivalent to Cython's `split_text` function.
+//!
+//! 3. **Token-aware merging** ([`merge`] module): Merge segments based on token counts,
+//!    equivalent to Cython's `_merge_splits` function.
 //!
 //! # Examples
 //!
@@ -43,9 +46,22 @@
 //! let offsets = split_at_delimiters(text, b".", IncludeDelim::Prev, 0);
 //! assert_eq!(&text[offsets[0].0..offsets[0].1], b"Hello.");
 //! ```
+//!
+//! ## Token-aware merging
+//!
+//! ```
+//! use chunk::merge_splits;
+//!
+//! // Merge segments based on token counts
+//! let token_counts = vec![1, 1, 1, 1, 1, 1, 1];
+//! let result = merge_splits(&token_counts, 3, false);
+//! assert_eq!(result.indices, vec![3, 6, 7]); // Merge indices
+//! assert_eq!(result.token_counts, vec![3, 3, 1]); // Merged token counts
+//! ```
 
 mod chunk;
 mod delim;
+mod merge;
 mod split;
 
 // Re-export from chunk module
@@ -53,6 +69,9 @@ pub use crate::chunk::{Chunker, OwnedChunker, chunk};
 
 // Re-export from split module
 pub use crate::split::{IncludeDelim, Splitter, split, split_at_delimiters};
+
+// Re-export from merge module
+pub use crate::merge::{MergeResult, compute_merged_token_counts, find_merge_indices, merge_splits};
 
 // Re-export constants from delim module
 pub use crate::delim::{DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE};
