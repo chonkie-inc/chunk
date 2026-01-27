@@ -24,6 +24,9 @@ you know how every chunking library claims to be fast? yeah, we actually meant i
 
 want to know how? [read the blog post](https://minha.sh/posts/so,-you-want-to-chunk-really-fast) where we nerd out about SIMD instructions and lookup tables.
 
+> [!NOTE]
+> **chunk** was previously known as **memchunk**. It still contains the `chunk` method but now also includes other basic operations that power [chonkie](https://github.com/chonkie-inc/chonkie) core.
+
 <p align="center">
   <img src="assets/benchmark.png" alt="Benchmark comparison" width="700">
 </p>
