@@ -1,3 +1,4 @@
+#![allow(clippy::needless_range_loop, clippy::manual_is_multiple_of)]
 //! Savitzky-Golay filter and related signal processing functions.
 //!
 //! This module provides optimized implementations for:

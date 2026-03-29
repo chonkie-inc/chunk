@@ -294,7 +294,7 @@ impl PatternSplitter {
     pub fn new(patterns: &[&[u8]]) -> Self {
         let mut trie = Trie::new();
         for (i, pattern) in patterns.iter().enumerate() {
-            trie.add(*pattern, i as u32);
+            trie.add(pattern, i as u32);
         }
         trie.build(MatchKind::LeftmostFirst);
         let daac = trie.compile();
@@ -441,7 +441,7 @@ pub fn split_at_patterns(
     // Build Trie and compile to Double-Array Aho-Corasick
     let mut trie = Trie::new();
     for (i, pattern) in patterns.iter().enumerate() {
-        trie.add(*pattern, i as u32);
+        trie.add(pattern, i as u32);
     }
     trie.build(MatchKind::LeftmostFirst);
     let daac = trie.compile();

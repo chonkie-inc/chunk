@@ -129,11 +129,7 @@ pub struct MergeResult {
 /// assert_eq!(result.merged, vec!["Helloworld!", "Howareyou"]);
 /// assert_eq!(result.token_counts, vec![3, 3]);
 /// ```
-pub fn merge_splits(
-    splits: &[&str],
-    token_counts: &[usize],
-    chunk_size: usize,
-) -> MergeResult {
+pub fn merge_splits(splits: &[&str], token_counts: &[usize], chunk_size: usize) -> MergeResult {
     // Early exit for empty input
     if splits.is_empty() || token_counts.is_empty() {
         return MergeResult {

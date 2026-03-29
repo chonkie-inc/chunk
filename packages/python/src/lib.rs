@@ -1,7 +1,6 @@
 use chunk::{
     DEFAULT_DELIMITERS, DEFAULT_TARGET_SIZE, IncludeDelim, OwnedChunker,
-    PatternSplitter as RustPatternSplitter,
-    filter_split_indices as rust_filter_split_indices,
+    PatternSplitter as RustPatternSplitter, filter_split_indices as rust_filter_split_indices,
     find_local_minima_interpolated as rust_find_local_minima,
     find_merge_indices as rust_find_merge_indices, merge_splits as rust_merge_splits,
     savgol_filter as rust_savgol_filter, split_at_delimiters, split_at_patterns,
@@ -433,11 +432,7 @@ fn find_merge_indices(token_counts: Vec<usize>, chunk_size: usize) -> Vec<usize>
 ///     >>> result.token_counts  # [3, 3]
 #[pyfunction]
 #[pyo3(signature = (splits, token_counts, chunk_size))]
-fn merge_splits(
-    splits: Vec<String>,
-    token_counts: Vec<usize>,
-    chunk_size: usize,
-) -> MergeResult {
+fn merge_splits(splits: Vec<String>, token_counts: Vec<usize>, chunk_size: usize) -> MergeResult {
     let split_refs: Vec<&str> = splits.iter().map(|s| s.as_str()).collect();
     let result = rust_merge_splits(&split_refs, &token_counts, chunk_size);
     MergeResult {
@@ -479,13 +474,12 @@ fn savgol_filter<'py>(
     deriv: usize,
 ) -> PyResult<Bound<'py, PyArray1<f64>>> {
     let data_slice = data.as_slice()?;
-    let result = rust_savgol_filter(data_slice, window_length, poly_order, deriv).ok_or_else(
-        || {
+    let result =
+        rust_savgol_filter(data_slice, window_length, poly_order, deriv).ok_or_else(|| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(
                 "Invalid parameters: window_length must be odd and > poly_order",
             )
-        },
-    )?;
+        })?;
     Ok(PyArray1::from_vec(py, result))
 }
 
@@ -518,14 +512,12 @@ fn find_local_minima_interpolated<'py>(
     tolerance: f64,
 ) -> PyResult<(Bound<'py, PyArray1<i64>>, Bound<'py, PyArray1<f64>>)> {
     let data_slice = data.as_slice()?;
-    let result =
-        rust_find_local_minima(data_slice, window_size, poly_order, tolerance).ok_or_else(
-            || {
-                PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                    "Invalid parameters: window_size must be odd and > poly_order",
-                )
-            },
-        )?;
+    let result = rust_find_local_minima(data_slice, window_size, poly_order, tolerance)
+        .ok_or_else(|| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                "Invalid parameters: window_size must be odd and > poly_order",
+            )
+        })?;
     let indices: Vec<i64> = result.indices.into_iter().map(|i| i as i64).collect();
     Ok((
         PyArray1::from_vec(py, indices),
